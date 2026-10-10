@@ -19,7 +19,7 @@ Claude 사용량 위젯 (비공식, Anthropic과 관계없음) — 바탕화면 
 """
 import datetime, glob, json, ntpath, os, re, socket, sys, threading, time, urllib.error, urllib.request
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 FROZEN = getattr(sys, "frozen", False)
 BASE = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
 ASSETS = os.path.dirname(os.path.abspath(__file__))
@@ -31,15 +31,19 @@ CLAUDE_DIR = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.j
 CREDENTIALS = os.path.join(CLAUDE_DIR, ".credentials.json")
 PROJECTS = os.path.join(CLAUDE_DIR, "projects")
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"  # 공개 문서에 없는 엔드포인트라 바뀔 수 있다
+PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"  # 플랜 이름용 (역시 공개 문서에 없음)
+PROFILE_TTL = 3600        # 플랜은 자주 바뀌지 않으니 프로필은 1시간에 한 번만 묻는다
 TITLE = "Claude 사용량"
 RETAIN_DAYS = 35          # 이보다 오래된 응답 기록은 캐시에 두지 않는다
 MIN_INTERVAL = 60         # 자동 새로고침 최소 간격(초)
+MAX_INTERVAL = 3600
+FOLDS = ("models", "projects")  # 접을 수 있는 목록
 AUTH_MSG = "Claude Code를 한 번 실행하면 토큰이 갱신됩니다"
 
 
 def load_json(path, default):
     try:
-        with open(path, encoding="utf-8") as f:
+        with open(path, encoding="utf-8-sig") as f:  # 메모장·PowerShell로 고치면 BOM이 붙는다
             return json.load(f)
     except Exception:
         return default
@@ -76,11 +80,30 @@ def num(v):
 
 # ---------------------------------------------------------------- 플랜 한도 (OAuth usage)
 def plan_label(sub, tier):
-    sub, tier = (sub or "").lower(), (tier or "").lower()
+    sub, tier = (sub or "").lower().removeprefix("claude_"), (tier or "").lower()
     m = re.search(r"max_(\d+)x", tier)
     if sub == "max" or m:
         return "Max" + (f" {m.group(1)}x" if m else "")
     return {"pro": "Pro", "team": "Team", "enterprise": "Enterprise", "free": "Free"}.get(sub, sub.title() or "")
+
+
+_profile = {"at": 0.0, "plan": ""}
+
+
+def profile_plan(headers):
+    """서버에 저장된 지금 플랜. 로그인 파일의 플랜은 로그인할 때 값이라 그 뒤에 플랜을 바꾸면 예전 값으로 남는다.
+    실패하면 ""를 돌려준다."""
+    if time.time() - _profile["at"] < PROFILE_TTL:
+        return _profile["plan"]
+    try:
+        with urllib.request.urlopen(urllib.request.Request(PROFILE_URL, headers=headers), timeout=10) as r:
+            org = (json.loads(r.read().decode("utf-8")) or {}).get("organization") or {}
+        plan = plan_label(org.get("organization_type"), org.get("rate_limit_tier"))
+    except Exception:  # 실패하면 10분 뒤에 다시 묻는다 (오프라인일 때 새로고침마다 기다리지 않게)
+        _profile.update(at=time.time() - PROFILE_TTL + 600, plan="")
+        return ""
+    _profile.update(at=time.time(), plan=plan)
+    return plan
 
 
 def read_credentials():
@@ -167,10 +190,12 @@ def fetch_plan():
     if meta["expires"] and meta["expires"] / 1000 < time.time():
         out.update(kind="auth", error="토큰이 만료되었습니다. " + AUTH_MSG)
         return out
-    req = urllib.request.Request(USAGE_URL, headers={
-        "Authorization": "Bearer " + token, "anthropic-beta": "oauth-2025-04-20",
-        "Accept": "application/json", "User-Agent": f"claude-usage-widget/{VERSION}"})
+    headers = {"Authorization": "Bearer " + token, "anthropic-beta": "oauth-2025-04-20",
+               "Accept": "application/json", "User-Agent": f"claude-usage-widget/{VERSION}"}
     del token
+    out["plan"] = profile_plan(headers) or meta["plan"]
+    req = urllib.request.Request(USAGE_URL, headers=headers)
+    headers = None
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
             body = json.loads(r.read().decode("utf-8"))
@@ -377,7 +402,7 @@ class Scanner:
                 for _, v in rows[n:]:
                     for k in rest:
                         rest[k] += v[k]
-                out.append({"name": f"그 밖의 {len(rows) - n}개", "rest": True, **rest})
+                out.append({"name": f"그 밖의 {len(rows) - n}개", "rest": True, "count": len(rows) - n, **rest})
             return out
 
         for i, d in enumerate(days):
@@ -443,7 +468,7 @@ class Api:
             return {"error": f"기록을 읽지 못했습니다 ({type(e).__name__})"}
 
     def get_conf(self):
-        c = {k: self._conf.get(k) for k in ("topmost", "interval", "proj_range", "theme", "plan_enabled")}
+        c = {k: self._conf.get(k) for k in ("topmost", "interval", "proj_range", "theme", "plan_enabled", "collapsed")}
         c["version"] = VERSION
         return c
 
@@ -454,7 +479,7 @@ class Api:
                 set_topmost(self._window, self._conf["topmost"])
         elif key == "interval":
             try:
-                self._conf["interval"] = max(MIN_INTERVAL, min(3600, int(value)))
+                self._conf["interval"] = max(MIN_INTERVAL, min(MAX_INTERVAL, int(value)))
             except (TypeError, ValueError):
                 return False
         elif key == "plan_enabled":
@@ -465,6 +490,8 @@ class Api:
             self._conf["proj_range"] = value
         elif key == "theme" and value in ("auto", "light", "dark"):
             self._conf["theme"] = value
+        elif key == "collapsed" and isinstance(value, list) and all(v in FOLDS for v in value):
+            self._conf["collapsed"] = sorted(set(value))
         else:
             return False
         save_json(CONF, self._conf)
@@ -498,17 +525,19 @@ def single_instance():
 
 def load_conf():
     conf = {"x": None, "y": None, "w": 420, "h": 900, "topmost": True, "interval": 300,
-            "proj_range": "today", "theme": "auto", "plan_enabled": False}
+            "proj_range": "today", "theme": "auto", "plan_enabled": False, "collapsed": []}
     saved = load_json(CONF, None)
     if saved is None:
         saved = load_json(LEGACY_CONF, {})
     if isinstance(saved, dict):
         conf.update({k: v for k, v in saved.items() if k in conf})
     try:
-        conf["interval"] = max(MIN_INTERVAL, int(conf["interval"]))
+        conf["interval"] = max(MIN_INTERVAL, min(MAX_INTERVAL, int(conf["interval"])))
     except (TypeError, ValueError):
         conf["interval"] = 300
     conf["plan_enabled"] = conf["plan_enabled"] is True
+    c = conf["collapsed"]
+    conf["collapsed"] = sorted({v for v in c if v in FOLDS}) if isinstance(c, list) else []
     return conf
 
 

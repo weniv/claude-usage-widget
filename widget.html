@@ -104,6 +104,13 @@ header .grow { flex: 1; min-width: 0; }
 .hbars .b i.rest { background: var(--faint); opacity: .5; }
 .sec { display: flex; align-items: center; gap: 8px; margin: 12px 0 6px; font-size: 11px; color: var(--dim); }
 .sec .r { margin-left: auto; }
+.sec.fold { cursor: pointer; border-radius: 6px; margin-left: -4px; margin-right: -4px; padding: 2px 4px; }
+.sec.fold:hover { background: var(--card2); color: var(--fg); }
+.sec.fold:focus-visible { outline: 1px solid var(--accent); }
+.sec .chev { width: 10px; height: 10px; flex: none; transition: transform .15s; }
+.sec.fold.closed .chev { transform: rotate(-90deg); }
+.sec .sum { color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sec .sum b { color: var(--dim); font-weight: 500; }
 .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
 .seg button { border: 0; background: transparent; color: var(--dim); font: inherit; font-size: 11px; padding: 2px 9px; cursor: pointer; }
 .seg button.on { background: var(--card2); color: var(--fg); }
@@ -281,10 +288,29 @@ function hbars(rows, color) {
     <span class="b"><i class="${r.rest ? "rest" : ""}" style="width:${Math.min(100, r.total / max * 100).toFixed(1)}%${color && !r.rest ? ";background:" + color : ""}"></i></span>
     <span class="x">${tok(r.total)}<small>${usd(r.cost)}</small></span>`).join("")}</div>`;
 }
+/* 접을 수 있는 목록 머리: 접혀 있으면 오른쪽에 합계를 보여 준다 */
+const CHEV = `<svg class="chev" viewBox="0 0 10 10"><path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const isFolded = id => (conf.collapsed || []).includes(id);
+function foldHead(id, title, rows, right) {
+  const closed = isFolded(id);
+  const sum = rows.reduce((a, r) => ({total: a.total + r.total, cost: a.cost + r.cost}), {total: 0, cost: 0});
+  const top = rows.find(r => !r.rest);
+  const n = rows.reduce((a, r) => a + (r.rest ? r.count || 0 : 1), 0);
+  const summary = top ? `${esc(top.label || top.name)}${n > 1 ? ` 외 ${n - 1}개` : ""} · <b>${tok(sum.total)}</b> ${usd(sum.cost)}` : "기록 없음";
+  return `<div class="sec fold${closed ? " closed" : ""}" data-fold="${id}" role="button" tabindex="0" aria-expanded="${!closed}"
+    title="${closed ? "펼치기" : "접기"}">${CHEV}${title}${closed ? `<span class="sum num">${summary}</span>` : ""}${right}</div>`;
+}
+function toggleFold(id) {
+  const c = new Set(conf.collapsed || []);
+  c.has(id) ? c.delete(id) : c.add(id);
+  conf.collapsed = [...c].sort();
+  pywebview.api.set_conf("collapsed", conf.collapsed);
+  renderLocal();
+}
 function renderLocal() {
   if (!local) return;
   const range = conf.proj_range === "week" ? "week" : "today";
-  const key = JSON.stringify([local.error, local.today, local.days, local.models, local.projects, local.unpriced, range]);
+  const key = JSON.stringify([local.error, local.today, local.days, local.models, local.projects, local.unpriced, range, conf.collapsed]);
   if (key === lastTokKey) return;   /* 바뀐 게 없으면 다시 그리지 않음 */
   lastTokKey = key;
   if (local.error) { $("#tok-body").innerHTML = `<div class="msg bad">${esc(local.error)}</div>`; return; }
@@ -298,10 +324,11 @@ function renderLocal() {
   <div class="meta num"><span>입력 <b>${tok(t.in)}</b></span><span>출력 <b>${tok(t.out)}</b></span>
     <span>캐시 쓰기 <b>${tok(t.cw)}</b></span><span>캐시 읽기 <b>${tok(t.cr)}</b></span></div>
   <div class="sec">최근 7일</div>${dayChart(local.days)}
-  <div class="sec">모델별 <span class="r">7일</span></div>${hbars(local.models, "var(--clay)")}
-  <div class="sec">프로젝트별 <span class="r seg" id="seg">
-    <button data-v="today" class="${range === "today" ? "on" : ""}">오늘</button><button data-v="week" class="${range === "week" ? "on" : ""}">7일</button></span></div>
-  ${hbars(local.projects[range] || [])}`;
+  ${foldHead("models", "모델별", local.models, `<span class="r">7일</span>`)}
+  ${isFolded("models") ? "" : hbars(local.models, "var(--clay)")}
+  ${foldHead("projects", "프로젝트별", local.projects[range] || [], `<span class="r seg" id="seg">
+    <button data-v="today" class="${range === "today" ? "on" : ""}">오늘</button><button data-v="week" class="${range === "week" ? "on" : ""}">7일</button></span>`)}
+  ${isFolded("projects") ? "" : hbars(local.projects[range] || [])}`;
   if (local.unpriced?.length) html += `<div class="warnline">단가를 모르는 모델은 환산에서 뺐습니다: ${local.unpriced.map(esc).join(", ")}</div>`;
   $("#tok-body").innerHTML = html;
   $("#seg").querySelectorAll("button").forEach(b => b.onclick = () => {
@@ -384,6 +411,9 @@ window.addEventListener("pywebviewready", async () => {
   $("#open-web").onclick = () => pywebview.api.open_usage_page();
   $("#plan-off").onclick = () => setPlanEnabled(false);
   $("#plan-body").addEventListener("click", e => { if (e.target.closest("[data-act=plan-on]")) setPlanEnabled(true); });
+  const fold = e => { const h = e.target.closest("[data-fold]"); if (h && !e.target.closest(".seg")) { e.preventDefault(); toggleFold(h.dataset.fold); } };
+  $("#tok-body").addEventListener("click", fold);
+  $("#tok-body").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") fold(e); });
   $("#ver").textContent = conf.version ? "v" + conf.version : "";
   refresh();
   schedule();

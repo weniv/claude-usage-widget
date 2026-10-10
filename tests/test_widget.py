@@ -73,6 +73,9 @@ class Models(unittest.TestCase):
     def test_plan_label(self):
         self.assertEqual(cuw.plan_label("max", "default_claude_max_20x"), "Max 20x")
         self.assertEqual(cuw.plan_label("pro", ""), "Pro")
+        # 서버 프로필 형식 (organization_type / rate_limit_tier)
+        self.assertEqual(cuw.plan_label("claude_max", "default_claude_max_20x"), "Max 20x")
+        self.assertEqual(cuw.plan_label("claude_pro", None), "Pro")
 
 
 class ScannerTest(unittest.TestCase):
@@ -127,6 +130,40 @@ class ScannerTest(unittest.TestCase):
         self.assertEqual(s["today"]["cost"], 0)
 
 
+class PlanNameTest(unittest.TestCase):
+    USAGE = {"limits": [{"kind": "session", "percent": 8}]}
+
+    def fetch(self, profile):
+        def urlopen(req, timeout=None):
+            if req.full_url == cuw.PROFILE_URL:
+                if profile is None:
+                    raise OSError("down")
+                body = profile
+            else:
+                body = self.USAGE
+            r = mock.MagicMock()
+            r.__enter__.return_value.read.return_value = json.dumps(body).encode()
+            return r
+        with mock.patch.object(cuw, "read_credentials", return_value=("tok", {"expires": None, "plan": "Max 5x"})),                 mock.patch.object(cuw.urllib.request, "urlopen", side_effect=urlopen),                 mock.patch.dict(cuw._profile, at=0.0, plan=""):
+            return cuw.fetch_plan()
+
+    def test_server_profile_wins_over_stale_credentials(self):
+        out = self.fetch({"organization": {"organization_type": "claude_max", "rate_limit_tier": "default_claude_max_20x"}})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["plan"], "Max 20x")
+
+    def test_profile_failure_falls_back_to_credentials(self):
+        out = self.fetch(None)
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["plan"], "Max 5x")
+
+    def test_profile_failure_is_not_retried_every_refresh(self):
+        with mock.patch.dict(cuw._profile, at=0.0, plan=""),                 mock.patch.object(cuw.urllib.request, "urlopen", side_effect=OSError("down")) as uo:
+            self.assertEqual(cuw.profile_plan({}), "")
+            self.assertEqual(cuw.profile_plan({}), "")
+            self.assertEqual(uo.call_count, 1)
+
+
 class ApiTest(unittest.TestCase):
     def test_plan_disabled_does_not_touch_credentials(self):
         with mock.patch.object(cuw, "Scanner"), mock.patch.object(cuw, "read_credentials") as rc:
@@ -146,17 +183,33 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(conf["interval"], cuw.MIN_INTERVAL)
             self.assertFalse(api.set_conf("x", 0))
             self.assertFalse(api.set_conf("theme", "neon"))
+            self.assertTrue(api.set_conf("collapsed", ["projects", "models", "models"]))
+            self.assertEqual(conf["collapsed"], ["models", "projects"])
+            self.assertFalse(api.set_conf("collapsed", ["evil"]))
+            self.assertFalse(api.set_conf("collapsed", "models"))
+            self.assertEqual(conf["collapsed"], ["models", "projects"])
+
+    def test_load_conf_with_bom(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "w.json")
+            with open(path, "w", encoding="utf-8-sig") as f:
+                json.dump({"plan_enabled": True, "collapsed": ["projects"]}, f)
+            with mock.patch.multiple(cuw, CONF=path, LEGACY_CONF=os.path.join(d, "none.json")):
+                c = cuw.load_conf()
+            self.assertIs(c["plan_enabled"], True)
+            self.assertEqual(c["collapsed"], ["projects"])
 
     def test_load_conf_legacy_and_defaults(self):
         with tempfile.TemporaryDirectory() as d:
             new, old = os.path.join(d, "new.json"), os.path.join(d, "old.json")
             with open(old, "w", encoding="utf-8") as f:
-                json.dump({"x": 10, "theme": "dark", "interval": "bad", "evil": 1}, f)
+                json.dump({"x": 10, "theme": "dark", "interval": "bad", "evil": 1, "collapsed": ["models", "x"]}, f)
             with mock.patch.multiple(cuw, CONF=new, LEGACY_CONF=old):
                 c = cuw.load_conf()
             self.assertEqual((c["x"], c["theme"], c["interval"]), (10, "dark", 300))
             self.assertNotIn("evil", c)
             self.assertIs(c["plan_enabled"], False)
+            self.assertEqual(c["collapsed"], ["models"])
 
 
 if __name__ == "__main__":
