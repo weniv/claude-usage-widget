@@ -45,8 +45,8 @@ macOS·Linux는 지원하지 않습니다(창 고정·단일 실행에 Win32 API
 
 [Releases](https://github.com/weniv/claude-usage-widget/releases)에서 `claude_usage_widget.exe`를 받아 실행합니다. 설치 과정은 없습니다.
 
-- 코드 서명이 없는 exe라서 처음 실행할 때 Windows SmartScreen 경고가 뜰 수 있습니다([추가 정보] → [실행]). 걱정되면 같이 올린 `.sha256`으로 해시를 확인하거나 아래처럼 소스로 실행하세요.
-- exe는 태그를 달 때 GitHub Actions(`.github/workflows/release.yml`)가 이 저장소 소스로 빌드합니다.
+- exe는 **WENIV Corp.** 이름으로 코드 서명되어 있습니다(Azure Artifact Signing). 파일 [속성] → [디지털 서명]에서 확인할 수 있고, 같이 올린 `.sha256`으로 해시도 확인할 수 있습니다.
+- exe는 태그를 달 때 GitHub Actions(`.github/workflows/release.yml`)가 이 저장소 소스로 빌드하고 서명합니다.
 
 ### 소스로 실행
 
@@ -76,6 +76,8 @@ powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
 ```
 
 결과는 `dist\claude_usage_widget.exe`입니다.
+
+서명까지 하려면 `AZURE_TENANT_ID`·`AZURE_CLIENT_ID`·`AZURE_CLIENT_SECRET` 환경변수를 넣고 `sign_exe.ps1`을 실행합니다(Windows SDK의 `signtool.exe` 필요). CI에서는 같은 이름의 GitHub Secrets를 씁니다.
 
 ## 플랜 한도 켜기 (선택)
 
@@ -126,7 +128,7 @@ python -m unittest discover -s tests -v
 
 테스트는 창·네트워크 없이 응답 파싱, 단가 계산, jsonl 증분 읽기·중복 제거, 설정 검증을 확인합니다. `main`에 push하거나 PR을 열면 GitHub Actions가 Python 3.11·3.13에서 돌립니다.
 
-릴리스: `claude_usage_widget.pyw`의 `VERSION`을 올리고 같은 이름의 태그(`v1.2.3`)를 push하면 exe를 빌드해 Release에 올립니다.
+릴리스: `claude_usage_widget.pyw`의 `VERSION`을 올리고 같은 이름의 태그(`v1.2.3`)를 push하면 exe를 빌드·서명해 Release에 올립니다.
 
 | 파일 | 내용 |
 |---|---|
@@ -135,6 +137,7 @@ python -m unittest discover -s tests -v
 | `tests/` | 단위 테스트 |
 | `make_shortcut.ps1` | 바탕화면 바로가기 만들기 |
 | `build_exe.ps1` | PyInstaller exe 빌드 |
+| `sign_exe.ps1` | exe 코드 서명(Azure Artifact Signing) |
 
 ## 라이선스
 

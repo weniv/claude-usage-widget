@@ -22,6 +22,13 @@ jobs:
       - name: exe 빌드
         shell: pwsh
         run: ./build_exe.ps1
+      - name: exe 코드 서명 (Azure Artifact Signing)
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: ./sign_exe.ps1
       - name: Release 만들기
         shell: bash
         env:
