@@ -1,4 +1,4 @@
-# 개인 설정·캐시 (창 위치, 토큰 사용 기록 캐시)
+# 개인 설정·캐시 (예전 위치. 지금은 %LOCALAPPDATA%\claude-usage-widget에 저장)
 widget.json
 *.tmp
 usage_cache.json
@@ -6,6 +6,8 @@ usage_cache.json
 # 파이썬
 __pycache__/
 *.pyc
+.venv/
+venv/
 
 # PyInstaller 빌드 결과
 build/

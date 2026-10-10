@@ -1,0 +1,2 @@
+# 항상 위(set_topmost)가 pywebview WinForms 내부 구조를 쓰므로 검증한 버전으로 고정
+pywebview==6.2.1

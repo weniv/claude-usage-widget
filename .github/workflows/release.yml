@@ -1,0 +1,33 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: 태그와 VERSION이 같은지 확인
+        shell: bash
+        run: grep -q "^VERSION = \"${GITHUB_REF_NAME#v}\"" claude_usage_widget.pyw
+      - run: pip install -r requirements.txt pyinstaller
+      - run: python -m unittest discover -s tests -v
+      - name: exe 빌드
+        shell: pwsh
+        run: ./build_exe.ps1
+      - name: Release 만들기
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          sha256sum claude_usage_widget.exe > claude_usage_widget.exe.sha256
+          gh release create "$GITHUB_REF_NAME" claude_usage_widget.exe claude_usage_widget.exe.sha256 \
+            --title "$GITHUB_REF_NAME" --generate-notes

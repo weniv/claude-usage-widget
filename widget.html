@@ -62,6 +62,11 @@ header .grow { flex: 1; min-width: 0; }
 .card h2 a:hover { color: var(--accent); }
 .msg { color: var(--dim); font-size: 12px; padding: 4px 0; }
 .msg.bad { color: var(--bad); }
+.optin { font-size: 12px; color: var(--dim); }
+.optin p { margin: 0 0 6px; }
+.optin b { color: var(--fg); font-weight: 600; }
+.optin ul { margin: 0 0 10px; padding-left: 18px; }
+.optin li { margin: 2px 0; }
 
 /* 지표 타일 */
 .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -137,7 +142,7 @@ footer .grow { flex: 1; }
 </header>
 
 <section class="card" id="plan">
-  <h2>플랜 한도 <span class="r" id="plan-r"></span><a id="open-web" title="claude.ai 사용량 페이지 열기">웹에서 보기</a></h2>
+  <h2>플랜 한도 <span class="r" id="plan-r"></span><a id="plan-off" title="플랜 한도 가져오기를 끕니다" hidden>끄기</a><a id="open-web" title="claude.ai 사용량 페이지 열기">웹에서 보기</a></h2>
   <div id="plan-body"><div class="msg">처음 정보를 가져오는 중…</div></div>
   <div id="plan-err"></div>
 </section>
@@ -155,13 +160,14 @@ footer .grow { flex: 1; }
   </select>
   <span class="grow"></span>
   <span title="공개 API 단가로 계산한 값입니다. 구독 요금과는 관계없습니다.">$ = API 환산 추정</span>
+  <span class="num" id="ver" title="비공식 위젯 · Anthropic과 관계없음"></span>
 </footer>
 
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 const THEMES = {auto: "자동", light: "라이트", dark: "다크"};
-let conf = {}, plan = null, planErr = null, local = null;
+let conf = {}, plan = null, planErr = null, planOff = false, local = null;
 let lastPlanHTML = "", lastPlanErrHTML = "", lastTokKey = "";
 let inflight = null, timer = null;
 
@@ -209,9 +215,20 @@ function limitTile(l) {
     <div class="bar"><i style="width:${Math.min(100, Math.max(0, p))}%;background:${c}"></i></div>
     <div class="s num">${l.resets ? "초기화까지 " + resetSpan(l.resets) : "&nbsp;"}</div></div>`;
 }
+const OPTIN = `<div class="optin">
+  <p>claude.ai 플랜 한도(5시간 세션·주간)를 보려면 이 PC에 저장된 Claude Code 로그인 토큰으로
+    Anthropic의 <b>공개 문서에 없는 API</b>를 불러야 해서 기본으로 꺼 두었습니다.</p>
+  <ul>
+    <li>토큰은 요청할 때만 파일에서 읽어 api.anthropic.com으로 보내고, 어디에도 저장·기록하지 않습니다.</li>
+    <li>공식 지원 기능이 아니라 예고 없이 막히거나 바뀔 수 있고, Anthropic 약관상 허용되는지 분명하지 않습니다. 직접 판단해서 켜 주세요.</li>
+    <li>켜지 않아도 위의 [웹에서 보기]로 같은 숫자를 볼 수 있습니다.</li>
+  </ul>
+  <button class="icon-btn" data-act="plan-on">이해했고, 플랜 한도 켜기</button></div>`;
 function renderPlan() {
   let html = "";
-  if (plan) {
+  if (planOff) {
+    html = OPTIN;
+  } else if (plan) {
     const L = plan.limits || [];
     const main = L.filter(l => !l.scoped).slice(0, 2), more = L.filter(l => !main.includes(l));
     html += `<div class="tiles">${main.map(limitTile).join("")}</div>`;
@@ -232,6 +249,15 @@ function renderPlan() {
   if (planErr) err = `<div class="warnline${planErr.kind === "auth" ? "" : " bad"}">${esc(planErr.error)}${planErr.detail ? ` <small>${esc(planErr.detail)}</small>` : ""}${plan ? `<small>아래는 ${esc(hhmm(plan.fetched))}에 가져온 값입니다</small>` : ""}</div>`;
   if (err !== lastPlanErrHTML) { $("#plan-err").innerHTML = err; lastPlanErrHTML = err; }
   $("#plan-r").textContent = (plan || planErr)?.plan || "";
+  $("#plan-off").hidden = !conf.plan_enabled;
+}
+async function setPlanEnabled(on) {
+  conf.plan_enabled = on;
+  await pywebview.api.set_conf("plan_enabled", on);
+  if (inflight) await inflight;   /* 켜기 전에 시작한 요청 결과가 덮어쓰지 않도록 */
+  plan = null; planErr = null; planOff = !on;
+  renderPlan(); renderHead();
+  if (on) refresh();
 }
 
 /* ---------- 이 PC의 토큰 ---------- */
@@ -286,9 +312,13 @@ function renderLocal() {
 /* ---------- 머리 · 시간 표시 ---------- */
 function renderHead() {
   const busy = !!inflight;
-  $("#dot").className = "dot " + (busy ? "busy" : planErr ? (planErr.kind === "auth" ? "warn" : "bad") : plan ? "ok" : "");
+  const localOk = local && !local.error;
+  $("#dot").className = "dot " + (busy ? "busy" : planOff ? (localOk ? "ok" : "") :
+    planErr ? (planErr.kind === "auth" ? "warn" : "bad") : plan ? "ok" : "");
   let s = busy ? "가져오는 중…" : "";
-  if (!busy) {
+  if (!busy && planOff) {
+    if (localOk) s = `토큰 기록 ${hhmm(local.scanned)}에 확인 · 플랜 한도 꺼짐`;
+  } else if (!busy) {
     const at = planErr?.fetched || plan?.fetched;
     if (planErr) s = `확인 실패${at ? " · " + hhmm(at) : ""}`;
     else if (plan) s = `${hhmm(plan.fetched)}에 확인 (${ago(plan.fetched)}) · ${Math.round(conf.interval / 60)}분마다`;
@@ -309,8 +339,9 @@ function refresh() {
   inflight = (async () => {
     try {
       const [p, l] = await Promise.all([pywebview.api.plan(), pywebview.api.local()]);
-      if (p && p.ok) { plan = p; planErr = null; }
-      else planErr = p || {kind: "internal", error: "응답 없음"};
+      if (p && p.ok) { plan = p; planErr = null; planOff = false; }
+      else if (p && p.kind === "disabled") { plan = null; planErr = null; planOff = true; }
+      else { planErr = p || {kind: "internal", error: "응답 없음"}; planOff = false; }
       if (l) local = l;
     } catch (e) {
       planErr = {kind: "internal", error: "위젯 내부 오류", detail: String(e).slice(0, 120)};
@@ -351,6 +382,9 @@ window.addEventListener("pywebviewready", async () => {
   $("#pin").onclick = () => { conf.topmost = !conf.topmost; $("#pin").classList.toggle("on", conf.topmost); pywebview.api.set_conf("topmost", conf.topmost); };
   $("#theme").onclick = () => { const k = Object.keys(THEMES); conf.theme = k[(k.indexOf(conf.theme) + 1) % k.length]; applyTheme(); pywebview.api.set_conf("theme", conf.theme); };
   $("#open-web").onclick = () => pywebview.api.open_usage_page();
+  $("#plan-off").onclick = () => setPlanEnabled(false);
+  $("#plan-body").addEventListener("click", e => { if (e.target.closest("[data-act=plan-on]")) setPlanEnabled(true); });
+  $("#ver").textContent = conf.version ? "v" + conf.version : "";
   refresh();
   schedule();
   setInterval(tickLocal, 30000);

@@ -1,28 +1,33 @@
 """
-Claude 사용량 위젯 — 바탕화면 'Claude 사용량 위젯' 바로가기로 실행 (창 없이 pythonw)
+Claude 사용량 위젯 (비공식, Anthropic과 관계없음) — 바탕화면 바로가기로 실행 (창 없이 pythonw)
 
-화면은 widget.html (Edge WebView2, pywebview). 필요 패키지: pip install pywebview
+화면은 widget.html (Edge WebView2, pywebview). 필요 패키지: pip install -r requirements.txt
 
-  - 플랜 한도: Claude Code가 저장해 둔 로그인 토큰(~/.claude/.credentials.json)으로
-    https://api.anthropic.com/api/oauth/usage 를 읽는다 (5시간 세션·주간·모델별 주간·추가 사용량)
-    처음 켤 때, [새로고침]을 누를 때, 자동 새로고침 간격(기본 5분, 최소 1분)마다 가져온다.
+  - 플랜 한도 (기본 꺼짐, 화면에서 직접 켜야 함): Claude Code가 저장해 둔 로그인 토큰
+    (~/.claude/.credentials.json)으로 https://api.anthropic.com/api/oauth/usage 를 읽는다
+    (5시간 세션·주간·모델별 주간·추가 사용량). 공개 문서에 없는 엔드포인트라 기본은 끄고,
+    사용자가 안내를 읽고 켰을 때만 처음 켤 때·[새로고침]·자동 새로고침 간격(기본 5분, 최소 1분)마다 가져온다.
     토큰은 가져올 때마다 새로 읽고, 어디에도 저장·기록하지 않으며 화면(JS)으로도 넘기지 않는다.
     자격 증명 파일은 읽기만 한다 (갱신·수정하지 않음).
   - 이 PC의 Claude Code 토큰: ~/.claude/projects/**/*.jsonl 의 응답 기록을 모아
     오늘·최근 7일·모델별·프로젝트별로 보여준다. 파일마다 읽은 위치를 기억해 새로 붙은 부분만 읽는다.
     (캐시: %LOCALAPPDATA%\\claude-usage-widget\\usage_cache.json)
+  - Claude Code 설정 폴더를 옮겼다면(환경 변수 CLAUDE_CONFIG_DIR) 그 폴더를 쓴다.
 
-창 위치·크기, 항상 위, 새로고침 간격, 테마는 스크립트 옆 widget.json에 저장한다.
+창 위치·크기, 항상 위, 새로고침 간격, 테마, 플랜 한도 켜기는 %LOCALAPPDATA%\\claude-usage-widget\\widget.json에
+저장한다 (예전 위치인 스크립트·exe 옆 widget.json이 있으면 처음 한 번 이어받는다).
 """
 import datetime, glob, json, ntpath, os, re, socket, sys, threading, time, urllib.error, urllib.request
 
+VERSION = "1.0.0"
 FROZEN = getattr(sys, "frozen", False)
 BASE = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
 ASSETS = os.path.dirname(os.path.abspath(__file__))
-CONF = os.path.join(BASE, "widget.json")
 DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or BASE, "claude-usage-widget")
+CONF = os.path.join(DATA_DIR, "widget.json")
+LEGACY_CONF = os.path.join(BASE, "widget.json")  # 예전 저장 위치 (스크립트·exe 옆)
 CACHE = os.path.join(DATA_DIR, "usage_cache.json")
-CLAUDE_DIR = os.path.join(os.path.expanduser("~"), ".claude")
+CLAUDE_DIR = os.path.expanduser(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join("~", ".claude"))
 CREDENTIALS = os.path.join(CLAUDE_DIR, ".credentials.json")
 PROJECTS = os.path.join(CLAUDE_DIR, "projects")
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"  # 공개 문서에 없는 엔드포인트라 바뀔 수 있다
@@ -164,7 +169,7 @@ def fetch_plan():
         return out
     req = urllib.request.Request(USAGE_URL, headers={
         "Authorization": "Bearer " + token, "anthropic-beta": "oauth-2025-04-20",
-        "Accept": "application/json", "User-Agent": "claude-usage-widget/1.0"})
+        "Accept": "application/json", "User-Agent": f"claude-usage-widget/{VERSION}"})
     del token
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
@@ -417,6 +422,8 @@ class Api:
         self._plan, self._plan_at = None, 0.0
 
     def plan(self):
+        if not self._conf.get("plan_enabled"):  # 꺼져 있으면 자격 증명 파일을 열지도 않는다
+            return {"ok": False, "fetched": time.time(), "kind": "disabled", "plan": ""}
         # 이미 가져오는 중이면 끝날 때까지 기다렸다가 그 결과를 같이 받는다 (일찍 돌아가지 않음)
         with self._plan_lock:
             if self._plan is not None and time.time() - self._plan_at < 3:
@@ -436,7 +443,9 @@ class Api:
             return {"error": f"기록을 읽지 못했습니다 ({type(e).__name__})"}
 
     def get_conf(self):
-        return {k: self._conf.get(k) for k in ("topmost", "interval", "proj_range", "theme")}
+        c = {k: self._conf.get(k) for k in ("topmost", "interval", "proj_range", "theme", "plan_enabled")}
+        c["version"] = VERSION
+        return c
 
     def set_conf(self, key, value):
         if key == "topmost":
@@ -448,6 +457,10 @@ class Api:
                 self._conf["interval"] = max(MIN_INTERVAL, min(3600, int(value)))
             except (TypeError, ValueError):
                 return False
+        elif key == "plan_enabled":
+            self._conf["plan_enabled"] = value is True
+            with self._plan_lock:
+                self._plan = None  # 껐다 켜면 예전 결과를 쓰지 않고 새로 가져온다
         elif key == "proj_range" and value in ("today", "week"):
             self._conf["proj_range"] = value
         elif key == "theme" and value in ("auto", "light", "dark"):
@@ -485,30 +498,47 @@ def single_instance():
 
 def load_conf():
     conf = {"x": None, "y": None, "w": 420, "h": 900, "topmost": True, "interval": 300,
-            "proj_range": "today", "theme": "auto"}
-    saved = load_json(CONF, {})
+            "proj_range": "today", "theme": "auto", "plan_enabled": False}
+    saved = load_json(CONF, None)
+    if saved is None:
+        saved = load_json(LEGACY_CONF, {})
     if isinstance(saved, dict):
         conf.update({k: v for k, v in saved.items() if k in conf})
     try:
         conf["interval"] = max(MIN_INTERVAL, int(conf["interval"]))
     except (TypeError, ValueError):
         conf["interval"] = 300
+    conf["plan_enabled"] = conf["plan_enabled"] is True
     return conf
+
+
+def on_screen(x, y):
+    """저장된 창 위치(왼쪽 위 근처)가 지금 연결된 모니터 안에 있는지. 확인하지 못하면 True"""
+    try:
+        import ctypes, ctypes.wintypes as wt
+        u32 = ctypes.windll.user32
+        u32.MonitorFromPoint.restype = ctypes.c_void_p
+        u32.MonitorFromPoint.argtypes = [wt.POINT, wt.DWORD]
+        return bool(u32.MonitorFromPoint(wt.POINT(int(x) + 40, int(y) + 10), 0))  # MONITOR_DEFAULTTONULL
+    except Exception:
+        return True
 
 
 def create_window(conf, api):
     import webview
-    if conf["x"] is None:  # 처음엔 주 모니터 작업 영역 오른쪽 위 (사내서버 위젯 기본 자리의 왼쪽)
+    if conf["x"] is not None and not on_screen(conf["x"], conf["y"]):  # 모니터를 떼어 냈으면 기본 자리로
+        conf["x"] = conf["y"] = None
+    if conf["x"] is None:  # 처음엔 주 모니터 작업 영역 오른쪽 위
         try:
             import ctypes, ctypes.wintypes as wt
             wa = wt.RECT()
             ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(wa), 0)  # SPI_GETWORKAREA
-            conf["x"], conf["y"] = max(wa.left, wa.right - 2 * (conf["w"] + 16)), wa.top + 16
+            conf["x"], conf["y"] = max(wa.left, wa.right - conf["w"] - 16), wa.top + 16
             conf["h"] = min(conf["h"], wa.bottom - wa.top - 32)
         except Exception:
             pass
     # 파일 경로 대신 HTML 문자열로 띄운다. private_mode=False 이면 pywebview가 로컬 파일을
-    # 고정 포트(127.0.0.1:42001)의 내장 HTTP 서버로 내보내는데, 같은 방식의 다른 위젯(사내서버 위젯 등)과
+    # 고정 포트(127.0.0.1:42001)의 내장 HTTP 서버로 내보내는데, 같은 방식의 다른 pywebview 앱과
     # 동시에 켜면 포트가 겹쳐 남의 화면이 뜬다. 문자열로 넘기면 HTTP 서버를 아예 쓰지 않는다.
     with open(os.path.join(ASSETS, "widget.html"), encoding="utf-8") as f:
         page = f.read()
