@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>Claude 사용량</title>
+<title>Claude Usage</title>
 <style>
 :root {
   --bg: #16181d; --card: #1f2229; --card2: #262a33; --line: #2e333d;
@@ -26,19 +26,22 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg);
-  font: 13px/1.45 "Pretendard", "맑은 고딕", "Malgun Gothic", system-ui, sans-serif; }
+  font: 13px/1.45 "Pretendard", "맑은 고딕", "Malgun Gothic", "Segoe UI", system-ui, sans-serif; }
 body { padding: 12px; user-select: none; }
+/* 영어 화면은 Segoe UI 먼저 (맑은 고딕은 \ 를 ₩ 로 그린다) */
+html[lang="en"], html[lang="en"] body { font-family: "Segoe UI", system-ui, "Malgun Gothic", sans-serif; }
+[hidden] { display: none !important; }
 .num { font-variant-numeric: tabular-nums; }
 
 /* 머리 */
-header { display: flex; align-items: center; gap: 8px; margin: 2px 2px 12px; }
-.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); flex: none; }
+header { display: flex; align-items: center; gap: 6px; margin: 2px 2px 12px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); flex: none; margin-right: 2px; }
 .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 22%, transparent); }
 .dot.warn { background: var(--warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 22%, transparent); }
 .dot.bad { background: var(--bad); box-shadow: 0 0 0 4px color-mix(in srgb, var(--bad) 22%, transparent); }
 .dot.busy { background: var(--accent); animation: pulse 1s infinite alternate; }
 @keyframes pulse { to { opacity: .35; } }
-header h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: -.2px; }
+header h1 { font-size: 15px; margin: 0; font-weight: 700; letter-spacing: -.2px; white-space: nowrap; }
 header .sub { color: var(--dim); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 header .grow { flex: 1; min-width: 0; }
 .icon-btn { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 8px;
@@ -58,15 +61,32 @@ header .grow { flex: 1; min-width: 0; }
 .card h2 { font-size: 11.5px; font-weight: 600; color: var(--dim); margin: 0 0 9px; display: flex;
   align-items: center; gap: 8px; letter-spacing: .2px; }
 .card h2 .r { margin-left: auto; font-weight: 400; color: var(--faint); }
-.card h2 a { color: var(--faint); text-decoration: none; cursor: pointer; font-weight: 400; }
-.card h2 a:hover { color: var(--accent); }
+.card h2 a, a.link { color: var(--faint); text-decoration: none; cursor: pointer; font-weight: 400; }
+.card h2 a:hover, a.link:hover { color: var(--accent); }
 .msg { color: var(--dim); font-size: 12px; padding: 4px 0; }
 .msg.bad { color: var(--bad); }
-.optin { font-size: 12px; color: var(--dim); }
+.msg b { color: var(--fg); font-weight: 600; display: block; margin-bottom: 2px; }
+.optin { font-size: 12px; color: var(--dim); margin-top: 8px; }
 .optin p { margin: 0 0 6px; }
 .optin b { color: var(--fg); font-weight: 600; }
 .optin ul { margin: 0 0 10px; padding-left: 18px; }
 .optin li { margin: 2px 0; }
+.mini { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--dim); }
+.mini span { flex: 1; min-width: 0; }
+
+/* 설정 */
+#settings h2 { margin-bottom: 6px; }
+.rows { display: grid; grid-template-columns: auto 1fr; gap: 7px 12px; align-items: center; font-size: 12px; }
+.rows > label:nth-child(odd), .rows > span:nth-child(odd) { color: var(--dim); white-space: nowrap; }
+.rows select, .rows input[type=text] { background: var(--card2); color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; font: inherit; font-size: 12px; padding: 3px 6px; min-width: 0; }
+.rows input[type=text] { width: 84px; text-align: right; user-select: text; }
+.rows input[type=text]:focus, .rows select:focus { outline: none; border-color: var(--accent); }
+.rows input.bad { border-color: var(--bad); }
+.rows input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; justify-self: start; }
+.rows .rate { display: flex; align-items: center; gap: 6px; }
+.note { font-size: 11px; color: var(--faint); margin-top: 8px; }
+.note.bad { color: var(--bad); }
 
 /* 지표 타일 */
 .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -76,7 +96,15 @@ header .grow { flex: 1; min-width: 0; }
 .tile .k span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile .v { font-size: 19px; font-weight: 700; letter-spacing: -.4px; margin-top: 1px; }
 .tile .v small { font-size: 11px; font-weight: 500; color: var(--dim); margin-left: 3px; letter-spacing: 0; }
+.tile .cost { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.tile .fx { font-size: 12px; color: var(--dim); }
 .tile .s { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.stats > div { background: var(--card2); border-radius: 8px; padding: 6px 8px; min-width: 0; font-size: 11px; }
+.stats span { display: block; color: var(--dim); }
+.stats b { display: block; font-size: 14px; font-weight: 700; letter-spacing: -.3px; }
+.stats b small { font-size: 10.5px; font-weight: 500; color: var(--dim); }
+.stats i { display: block; font-style: normal; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 5px 0 4px; }
 .bar > i { display: block; height: 100%; border-radius: 3px; background: var(--accent); transition: width .4s; }
 .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 9px; color: var(--dim); font-size: 11.5px; }
@@ -111,7 +139,7 @@ header .grow { flex: 1; min-width: 0; }
 .sec.fold.closed .chev { transform: rotate(-90deg); }
 .sec .sum { color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .sec .sum b { color: var(--dim); font-weight: 500; }
-.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; flex: none; }
 .seg button { border: 0; background: transparent; color: var(--dim); font: inherit; font-size: 11px; padding: 2px 9px; cursor: pointer; }
 .seg button.on { background: var(--card2); color: var(--fg); }
 .pills { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
@@ -122,10 +150,9 @@ header .grow { flex: 1; min-width: 0; }
 .chart text { font-size: 9.5px; fill: var(--faint); }
 .chart text.today { fill: var(--fg); font-weight: 600; }
 .chart text.val { fill: var(--dim); }
+.chart text.tk { fill: var(--fg); font-weight: 600; }
 
-footer { display: flex; align-items: center; gap: 8px; color: var(--faint); font-size: 11px; margin: 2px 2px 4px; }
-footer select { background: var(--card); color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
-  font: inherit; font-size: 11px; padding: 1px 4px; }
+footer { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 11px; margin: 2px 2px 4px; }
 footer .grow { flex: 1; }
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
@@ -137,48 +164,155 @@ footer .grow { flex: 1; }
 <header>
   <div class="dot" id="dot"></div>
   <div class="grow">
-    <h1>Claude 사용량</h1>
-    <div class="sub num" id="sub">불러오는 중…</div>
+    <h1 id="title">Claude</h1>
+    <div class="sub num" id="sub">…</div>
   </div>
-  <button class="icon-btn" id="refresh" title="플랜 한도와 토큰 기록 새로 가져오기">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>새로고침</button>
-  <button class="icon-btn sq" id="theme" title="테마: 자동">
+  <button class="icon-btn" id="refresh">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg><span id="refresh-t"></span></button>
+  <button class="icon-btn sq" id="theme">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
-  <button class="icon-btn sq" id="pin" title="항상 위">
+  <button class="icon-btn sq" id="pin">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 4 4H6l4-4z"/></svg></button>
+  <button class="icon-btn sq" id="gear">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
 
+<section class="card" id="settings" hidden>
+  <h2><span id="set-t"></span><a class="r" id="set-close"></a></h2>
+  <div class="rows">
+    <label for="s-lang" id="l-lang"></label><select id="s-lang"></select>
+    <label for="s-cur" id="l-cur"></label><select id="s-cur"></select>
+    <label for="s-rate" id="l-rate"></label>
+    <span class="rate num">$1 = <input id="s-rate" type="text" inputmode="decimal" maxlength="12" spellcheck="false"><span id="s-rate-c"></span></span>
+    <label for="interval" id="l-int"></label><select id="interval"></select>
+    <label for="s-auto" id="l-auto"></label><input id="s-auto" type="checkbox">
+    <label for="s-plan" id="l-plan"></label><input id="s-plan" type="checkbox">
+  </div>
+  <div class="note" id="set-note"></div>
+</section>
+
 <section class="card" id="plan">
-  <h2>플랜 한도 <span class="r" id="plan-r"></span><a id="plan-off" title="플랜 한도 가져오기를 끕니다" hidden>끄기</a><a id="open-web" title="claude.ai 사용량 페이지 열기">웹에서 보기</a></h2>
-  <div id="plan-body"><div class="msg">처음 정보를 가져오는 중…</div></div>
+  <h2><span id="plan-t"></span> <span class="r" id="plan-r"></span><a id="plan-off" hidden></a><a id="open-web"></a></h2>
+  <div id="plan-body"></div>
   <div id="plan-err"></div>
 </section>
 
 <section class="card" id="tok">
-  <h2>이 PC의 Claude Code 토큰 <span class="r num" id="tok-r"></span></h2>
-  <div id="tok-body"><div class="msg">기록을 읽는 중… (처음에는 몇 초 걸립니다)</div></div>
+  <h2><span id="tok-t"></span> <span class="r num" id="tok-r"></span></h2>
+  <div id="tok-body"></div>
 </section>
 
 <footer>
-  <span>자동 새로고침</span>
-  <select id="interval">
-    <option value="60">1분</option><option value="120">2분</option><option value="300">5분</option>
-    <option value="600">10분</option><option value="900">15분</option><option value="1800">30분</option>
-  </select>
+  <span id="est"></span>
+  <a class="link num" id="fx-link"></a>
   <span class="grow"></span>
-  <span title="공개 API 단가로 계산한 값입니다. 구독 요금과는 관계없습니다.">$ = API 환산 추정</span>
-  <span class="num" id="ver" title="비공식 위젯 · Anthropic과 관계없음"></span>
+  <span class="num" id="ver"></span>
 </footer>
 
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-const THEMES = {auto: "자동", light: "라이트", dark: "다크"};
-let conf = {}, plan = null, planErr = null, planOff = false, local = null;
+
+/* ---------- 화면 글자 (한국어 · 영어) ---------- */
+const I18N = {
+  ko: {
+    title: "Claude 사용량", refresh: "새로고침", refreshTip: "플랜 한도와 토큰 기록 새로 가져오기",
+    theme: "테마", themes: {auto: "자동", light: "라이트", dark: "다크"}, pin: "항상 위", settings: "설정", close: "닫기",
+    planTitle: "플랜 한도", planOff: "끄기", planOffTip: "플랜 한도 가져오기를 끕니다", web: "웹에서 보기", webTip: "claude.ai 사용량 페이지 열기",
+    loading: "처음 정보를 가져오는 중…", planFail: "한도 정보를 아직 가져오지 못했습니다", fetchedAt: t => `아래는 ${t}에 가져온 값입니다`,
+    offLine: "플랜 한도(5시간 세션·주간)는 꺼져 있습니다", more: "켜는 방법", less: "접기",
+    optin: `<p>claude.ai 플랜 한도(5시간 세션·주간)를 보려면 이 PC에 저장된 Claude Code 로그인 토큰으로
+      Anthropic의 <b>공개 문서에 없는 API</b>를 불러야 해서 기본으로 꺼 두었습니다.</p>
+      <ul><li>토큰은 요청할 때만 파일에서 읽어 api.anthropic.com으로 보내고, 어디에도 저장·기록하지 않습니다.</li>
+      <li>공식 지원 기능이 아니라 예고 없이 막히거나 바뀔 수 있고, Anthropic 약관상 허용되는지 분명하지 않습니다. 직접 판단해서 켜 주세요.</li>
+      <li>켜지 않아도 위의 [웹에서 보기]로 같은 숫자를 볼 수 있습니다.</li></ul>`,
+    optinBtn: "이해했고, 플랜 한도 켜기",
+    extra: "추가 사용량", breakdown: "주간 사용 비중", session: "5시간 세션", weekly: "주간 한도", weeklyOf: m => `주간 · ${m}`,
+    limit: "한도", bd: {claude_code: "Claude Code", chat: "채팅", cowork: "Cowork", other: "기타"},
+    resetAt: "초기화 시각", resetIn: "초기화까지 ", soon: "곧",
+    err: {no_login: "Claude Code 로그인 정보가 없습니다. Claude Code에서 로그인하세요",
+      cred_read: "로그인 정보 파일을 읽지 못했습니다", relogin: "Claude Code를 한 번 실행하면 토큰이 갱신됩니다",
+      expired: "토큰이 만료되었습니다. Claude Code를 한 번 실행하면 토큰이 갱신됩니다",
+      rate_limited: "요청이 너무 잦아 잠시 막혔습니다 (HTTP 429). 잠시 뒤 다시 시도하세요",
+      http: s => `서버가 오류로 응답했습니다 (HTTP ${s})`, network: "네트워크에 연결하지 못했습니다",
+      bad_json: "응답을 해석하지 못했습니다", format: "응답 형식이 바뀐 것 같습니다 (위젯 업데이트 필요)",
+      internal: "내부 오류", widget: "위젯 내부 오류", none: "응답 없음"},
+    net: {dns: "주소를 찾지 못했습니다. 인터넷 연결을 확인하세요", timeout: "응답 시간이 초과되었습니다", refused: "연결이 거부되었거나 끊겼습니다"},
+    tokTitle: "이 PC의 Claude Code 토큰", reading: "기록을 읽는 중… (처음에는 몇 초 걸립니다)",
+    scanErr: d => `기록을 읽지 못했습니다 (${d})`, files: (n, t) => `파일 ${n}개 · ${t}`,
+    today: "오늘", tokens: "토큰", out: "출력", todayIn: "오늘 입력", cw: "캐시 쓰기", cr: "캐시 읽기", est: "API 환산 추정",
+    periods: {"7": "7일", "30": "30일", month: "이번 달"}, last: p => `최근 ${p}`, thisMonth: m => `이번 달 (${m + 1}월)`,
+    daily: "일별", avg: "일 평균", peak: "가장 많은 날", used: "사용한 날", ofDays: n => `/${n}일`,
+    models: "모델별", projects: "프로젝트별", none: "기록 없음", others: n => `그 밖의 ${n}개`, andMore: n => ` 외 ${n}개`,
+    fold: "접기", unfold: "펼치기", unpriced: "단가를 모르는 모델은 환산에서 뺐습니다: ",
+    wdMon: "월화수목금토일".split(""), wdSun: "일월화수목금토".split(""),
+    emptyNoDir: ["Claude Code 기록 폴더를 찾지 못했습니다", "이 PC에서 Claude Code를 설치해 한 번 쓰고 나면 여기에 토큰 사용량이 쌓입니다. (사용자 폴더의 .claude\\projects, CLAUDE_CONFIG_DIR를 정했다면 그 폴더)"],
+    emptyNoFile: ["아직 Claude Code 기록이 없습니다", "Claude Code로 대화를 시작하면 몇 초 안에 여기에 나타납니다."],
+    emptyOld: ["최근 31일 동안 쓴 기록이 없습니다", "Claude Code를 다시 쓰면 여기에 나타납니다."],
+    busy: "가져오는 중…", localAt: t => `토큰 기록 ${t}에 확인`, planOffHead: "플랜 한도 꺼짐", failAt: "확인 실패",
+    checked: (t, a, m) => `${t}에 확인 (${a}) · ${m}분마다`,
+    now: "방금", minAgo: m => `${m}분 전`, hourAgo: h => `${h}시간 전`,
+    dh: (d, h) => `${d}일 ${h}시간`, hm: (h, m) => `${h}시간 ${m}분`, mOnly: m => `${m}분`, minutes: m => `${m}분`,
+    lang: "언어", langAuto: "자동 (Windows 설정)", cur: "통화", curAuto: c => `자동 (${c})`, usdOnly: "달러만 표시",
+    rate: "환율", interval: "자동 새로고침", autostart: "Windows 시작 시 실행", showPlan: "플랜 한도 카드 표시",
+    note: "$는 공개 API 단가로 계산한 추정치로, 구독 요금과는 관계없습니다. 환율은 시세를 가져오지 않으니 직접 고쳐 쓰세요.",
+    rateBad: "환율에는 0보다 큰 숫자를 넣어 주세요", autoFail: "Windows 시작 프로그램에 등록하지 못했습니다",
+    estFoot: "$ = API 환산 추정", estTip: "공개 API 단가로 계산한 값입니다. 구독 요금과는 관계없습니다.", fxTip: "환율 고치기",
+  },
+  en: {
+    title: "Claude Usage", refresh: "Refresh", refreshTip: "Fetch plan limits and token logs again",
+    theme: "Theme", themes: {auto: "Auto", light: "Light", dark: "Dark"}, pin: "Always on top", settings: "Settings", close: "Close",
+    planTitle: "Plan limits", planOff: "Turn off", planOffTip: "Stop fetching plan limits", web: "Open web", webTip: "Open the claude.ai usage page",
+    loading: "Fetching for the first time…", planFail: "Couldn't fetch plan limits yet", fetchedAt: t => `Showing values fetched at ${t}`,
+    offLine: "Plan limits (5-hour session, weekly) are off", more: "How to enable", less: "Hide",
+    optin: `<p>Showing claude.ai plan limits (5-hour session, weekly) requires calling an <b>undocumented Anthropic API</b>
+      with the Claude Code login token stored on this PC, so it is off by default.</p>
+      <ul><li>The token is read from the file only when requesting, sent only to api.anthropic.com, and never stored or logged.</li>
+      <li>This is not an officially supported feature. It may break or change without notice, and it is unclear whether Anthropic's terms allow it. Enable it at your own judgment.</li>
+      <li>Without it, [Open web] shows the same numbers on claude.ai.</li></ul>`,
+    optinBtn: "I understand, enable plan limits",
+    extra: "Extra usage", breakdown: "Weekly usage by surface", session: "5-hour session", weekly: "Weekly limit", weeklyOf: m => `Weekly · ${m}`,
+    limit: "Limit", bd: {claude_code: "Claude Code", chat: "Chat", cowork: "Cowork", other: "Other"},
+    resetAt: "Resets at", resetIn: "Resets in ", soon: "soon",
+    err: {no_login: "No Claude Code login found. Sign in with Claude Code",
+      cred_read: "Couldn't read the login file", relogin: "Run Claude Code once to refresh the token",
+      expired: "The token has expired. Run Claude Code once to refresh it",
+      rate_limited: "Too many requests (HTTP 429). Try again in a moment",
+      http: s => `The server returned an error (HTTP ${s})`, network: "Couldn't connect to the network",
+      bad_json: "Couldn't parse the response", format: "The response format seems to have changed (widget update needed)",
+      internal: "Internal error", widget: "Widget internal error", none: "No response"},
+    net: {dns: "Couldn't resolve the address. Check your internet connection", timeout: "The request timed out", refused: "The connection was refused or dropped"},
+    tokTitle: "Claude Code tokens on this PC", reading: "Reading logs… (takes a few seconds the first time)",
+    scanErr: d => `Couldn't read the logs (${d})`, files: (n, t) => `${n} files · ${t}`,
+    today: "Today", tokens: "tokens", out: "Output", todayIn: "Today input", cw: "Cache write", cr: "Cache read", est: "API est.",
+    periods: {"7": "7 days", "30": "30 days", month: "This month"}, last: p => `Last ${p}`,
+    thisMonth: m => `This month (${new Date(2000, m, 1).toLocaleString("en-US", {month: "short"})})`,
+    daily: "Daily", avg: "Daily average", peak: "Peak day", used: "Active days", ofDays: n => `/${n}`,
+    models: "By model", projects: "By project", none: "No records", others: n => `${n} more`, andMore: n => ` +${n}`,
+    fold: "Collapse", unfold: "Expand", unpriced: "Models with unknown prices are excluded from cost: ",
+    wdMon: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], wdSun: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    emptyNoDir: ["Claude Code log folder not found", "Install and use Claude Code on this PC and token usage will show up here. (.claude\\projects in your user folder, or CLAUDE_CONFIG_DIR if set)"],
+    emptyNoFile: ["No Claude Code logs yet", "Start a session in Claude Code and it will show up here within seconds."],
+    emptyOld: ["No usage in the last 31 days", "Use Claude Code again and it will show up here."],
+    busy: "Fetching…", localAt: t => `Token logs checked at ${t}`, planOffHead: "plan limits off", failAt: "Check failed",
+    checked: (t, a, m) => `Checked at ${t} (${a}) · every ${m} min`,
+    now: "just now", minAgo: m => `${m} min ago`, hourAgo: h => `${h} h ago`,
+    dh: (d, h) => `${d}d ${h}h`, hm: (h, m) => `${h}h ${m}m`, mOnly: m => `${m}m`, minutes: m => `${m} min`,
+    lang: "Language", langAuto: "Auto (Windows setting)", cur: "Currency", curAuto: c => `Auto (${c})`, usdOnly: "USD only",
+    rate: "Exchange rate", interval: "Auto refresh", autostart: "Start with Windows", showPlan: "Show plan limits card",
+    note: "$ is an estimate at public API prices and is unrelated to your subscription fee. Exchange rates are not fetched; edit them yourself.",
+    rateBad: "Enter a number greater than 0", autoFail: "Couldn't register with Windows startup",
+    estFoot: "$ = API-equivalent est.", estTip: "Calculated at public API prices. Unrelated to your subscription fee.", fxTip: "Edit exchange rate",
+  },
+};
+let conf = {}, plan = null, planErr = null, planOff = false, local = null, introOpen = false;
 let lastPlanHTML = "", lastPlanErrHTML = "", lastTokKey = "";
 let inflight = null, timer = null;
+const lang = () => conf.lang === "ko" || conf.lang === "en" ? conf.lang : conf.sys_lang === "ko" ? "ko" : "en";
+const T = () => I18N[lang()];
+const LOCALE = () => lang() === "ko" ? "ko-KR" : "en-US";
 
-/* 숫자 모양 */
+/* ---------- 숫자 모양 ---------- */
 function tok(n) {
   if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1) + "B";
   if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M";
@@ -186,23 +320,37 @@ function tok(n) {
   return String(Math.round(n));
 }
 function usd(v) { return v >= 1000 ? "$" + Math.round(v).toLocaleString("en-US") : v >= 100 ? "$" + v.toFixed(0) : "$" + v.toFixed(2); }
+/* 고른 통화로 바꾼 값. 통화가 USD(달러만 표시)면 null */
+const cur = () => { const c = conf.currency === "auto" || !conf.currency ? conf.sys_currency : conf.currency; return c && c !== "USD" && conf.currencies?.[c] ? c : null; };
+const rateOf = c => (conf.fx || {})[c] ?? conf.currencies?.[c] ?? 1;
+function fx(v) {
+  const c = cur(); if (!c) return "";
+  return new Intl.NumberFormat(LOCALE(), {style: "currency", currency: c}).format(v * rateOf(c));
+}
+function fxShort(v) {   /* 좁은 자리용: ₩8,500 · ₩6.5만 · ₩123만 (영어면 ₩65K) */
+  const c = cur(); if (!c) return "";
+  const w = v * rateOf(c);
+  if (Math.abs(w) < 10000) return new Intl.NumberFormat(LOCALE(), {style: "currency", currency: c}).format(w);
+  return new Intl.NumberFormat(LOCALE(), {style: "currency", currency: c, notation: "compact", maximumSignificantDigits: 3}).format(w);
+}
 function hhmm(ts) { return new Date(ts * 1000).toTimeString().slice(0, 5); }
 function ago(ts) {
-  const s = Date.now() / 1000 - ts;
-  if (s < 60) return "방금"; if (s < 3600) return Math.floor(s / 60) + "분 전";
-  return Math.floor(s / 3600) + "시간 전";
+  const s = Date.now() / 1000 - ts, t = T();
+  if (s < 60) return t.now; if (s < 3600) return t.minAgo(Math.floor(s / 60));
+  return t.hourAgo(Math.floor(s / 3600));
 }
 function left(ts) {   /* 초기화까지 남은 시간 */
-  const s = ts - Date.now() / 1000;
-  if (s <= 0) return "곧";
+  const s = ts - Date.now() / 1000, t = T();
+  if (s <= 0) return t.soon;
   const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
-  return d ? `${d}일 ${h}시간` : h ? `${h}시간 ${m}분` : `${Math.max(1, m)}분`;
+  return d ? t.dh(d, h) : h ? t.hm(h, m) : t.mOnly(Math.max(1, m));
 }
 function when(ts) {
   const d = new Date(ts * 1000), now = new Date();
   if (d.toDateString() === now.toDateString()) return hhmm(ts);
-  return `${d.getMonth() + 1}/${d.getDate()}(${"일월화수목금토"[d.getDay()]}) ${hhmm(ts)}`;
+  return `${d.getMonth() + 1}/${d.getDate()}(${T().wdSun[d.getDay()]}) ${hhmm(ts)}`;
 }
+const wd = d => T().wdMon[d.wd] ?? "";
 /* severity(서버 판단) 우선, 없으면 퍼센트로 */
 function sev(l) {
   const s = (l.severity || "").toLowerCase();
@@ -214,91 +362,130 @@ function sev(l) {
 const SEVC = {ok: "var(--accent)", warn: "var(--warn)", bad: "var(--bad)"};
 
 /* ---------- 플랜 한도 ---------- */
+function limitName(l) {
+  const t = T();
+  if (l.kind === "session") return t.session;
+  if (l.kind === "weekly_all") return t.weekly;
+  if (l.model) return l.weekly ? t.weeklyOf(l.model) : l.model;
+  return l.label || t.limit;
+}
+function errText(e) {
+  const t = T(), f = t.err[e.code];
+  return typeof f === "function" ? f(e.status) : f || t.err.internal;
+}
 function resetSpan(ts) { return ts ? `<span data-reset="${ts}">${left(ts)}</span>` : ""; }
 function limitTile(l) {
-  const c = SEVC[sev(l)], p = l.percent;
-  return `<div class="tile"><div class="k"><span>${esc(l.name)}</span><span class="num" title="초기화 시각">${l.resets ? esc(when(l.resets)) : ""}</span></div>
+  const c = SEVC[sev(l)], p = l.percent, t = T();
+  return `<div class="tile"><div class="k"><span>${esc(limitName(l))}</span><span class="num" title="${t.resetAt}">${l.resets ? esc(when(l.resets)) : ""}</span></div>
     <div class="v num" style="${sev(l) !== "ok" ? "color:" + c : ""}">${Math.round(p)}<small>%</small></div>
     <div class="bar"><i style="width:${Math.min(100, Math.max(0, p))}%;background:${c}"></i></div>
-    <div class="s num">${l.resets ? "초기화까지 " + resetSpan(l.resets) : "&nbsp;"}</div></div>`;
+    <div class="s num">${l.resets ? t.resetIn + resetSpan(l.resets) : "&nbsp;"}</div></div>`;
 }
-const OPTIN = `<div class="optin">
-  <p>claude.ai 플랜 한도(5시간 세션·주간)를 보려면 이 PC에 저장된 Claude Code 로그인 토큰으로
-    Anthropic의 <b>공개 문서에 없는 API</b>를 불러야 해서 기본으로 꺼 두었습니다.</p>
-  <ul>
-    <li>토큰은 요청할 때만 파일에서 읽어 api.anthropic.com으로 보내고, 어디에도 저장·기록하지 않습니다.</li>
-    <li>공식 지원 기능이 아니라 예고 없이 막히거나 바뀔 수 있고, Anthropic 약관상 허용되는지 분명하지 않습니다. 직접 판단해서 켜 주세요.</li>
-    <li>켜지 않아도 위의 [웹에서 보기]로 같은 숫자를 볼 수 있습니다.</li>
-  </ul>
-  <button class="icon-btn" data-act="plan-on">이해했고, 플랜 한도 켜기</button></div>`;
 function renderPlan() {
+  const t = T();
   let html = "";
   if (planOff) {
-    html = OPTIN;
+    html = `<div class="mini"><span>${t.offLine}</span><a class="link" data-act="intro">${introOpen ? t.less : t.more}</a></div>`;
+    if (introOpen) html += `<div class="optin">${t.optin}<button class="icon-btn" data-act="plan-on">${t.optinBtn}</button></div>`;
   } else if (plan) {
     const L = plan.limits || [];
     const main = L.filter(l => !l.scoped).slice(0, 2), more = L.filter(l => !main.includes(l));
     html += `<div class="tiles">${main.map(limitTile).join("")}</div>`;
-    if (more.length) html += `<div class="lrows num">${more.map(l => `<span class="n" title="${esc(l.name)}${l.resets ? " · 초기화 " + esc(when(l.resets)) : ""}">${esc(l.name)}</span>
+    if (more.length) html += `<div class="lrows num">${more.map(l => `<span class="n" title="${esc(limitName(l))}${l.resets ? " · " + t.resetAt + " " + esc(when(l.resets)) : ""}">${esc(limitName(l))}</span>
       <span class="b"><i style="width:${Math.min(100, Math.max(0, l.percent))}%;background:${SEVC[sev(l)]}"></i></span>
       <span class="x">${Math.round(l.percent)}%</span>`).join("")}</div>`;
     const x = plan.extra;
-    if (x) html += `<div class="meta num"><span>추가 사용량 <b>${x.currency === "USD" ? usd(x.used) : x.used.toFixed(2) + " " + esc(x.currency)}</b>${x.limit != null ? ` / ${x.currency === "USD" ? usd(x.limit) : x.limit + " " + esc(x.currency)}` : ""}${x.percent != null ? ` (${Math.round(x.percent)}%)` : ""}</span></div>`;
+    if (x) html += `<div class="meta num"><span>${t.extra} <b>${x.currency === "USD" ? usd(x.used) : x.used.toFixed(2) + " " + esc(x.currency)}</b>${x.limit != null ? ` / ${x.currency === "USD" ? usd(x.limit) : x.limit + " " + esc(x.currency)}` : ""}${x.percent != null ? ` (${Math.round(x.percent)}%)` : ""}${x.currency === "USD" && cur() ? ` · ${fx(x.used)}` : ""}</span></div>`;
     const bd = (plan.breakdown || []).filter(b => b.percent > 0);
-    if (bd.length) html += `<div class="pills num"><span class="pill">주간 사용 비중</span>${bd.map(b => `<span class="pill">${esc(b.name)} <b>${Math.round(b.percent)}%</b></span>`).join("")}</div>`;
+    if (bd.length) html += `<div class="pills num"><span class="pill">${t.breakdown}</span>${bd.map(b => `<span class="pill">${esc(t.bd[b.key] || b.name)} <b>${Math.round(b.percent)}%</b></span>`).join("")}</div>`;
   } else if (planErr) {
-    html = `<div class="msg">한도 정보를 아직 가져오지 못했습니다</div>`;
+    html = `<div class="msg">${t.planFail}</div>`;
   } else {
-    html = `<div class="msg">처음 정보를 가져오는 중…</div>`;
+    html = `<div class="msg">${t.loading}</div>`;
   }
   if (html !== lastPlanHTML) { $("#plan-body").innerHTML = html; lastPlanHTML = html; }
   let err = "";
-  if (planErr) err = `<div class="warnline${planErr.kind === "auth" ? "" : " bad"}">${esc(planErr.error)}${planErr.detail ? ` <small>${esc(planErr.detail)}</small>` : ""}${plan ? `<small>아래는 ${esc(hhmm(plan.fetched))}에 가져온 값입니다</small>` : ""}</div>`;
+  if (planErr) {
+    const detail = planErr.detail ? (t.net[planErr.detail] || planErr.detail) : "";
+    err = `<div class="warnline${planErr.kind === "auth" ? "" : " bad"}">${esc(errText(planErr))}${detail ? ` <small>${esc(detail)}</small>` : ""}${plan ? `<small>${esc(t.fetchedAt(hhmm(plan.fetched)))}</small>` : ""}</div>`;
+  }
   if (err !== lastPlanErrHTML) { $("#plan-err").innerHTML = err; lastPlanErrHTML = err; }
   $("#plan-r").textContent = (plan || planErr)?.plan || "";
   $("#plan-off").hidden = !conf.plan_enabled;
+  $("#plan").hidden = conf.show_plan === false;
 }
 async function setPlanEnabled(on) {
   conf.plan_enabled = on;
   await pywebview.api.set_conf("plan_enabled", on);
   if (inflight) await inflight;   /* 켜기 전에 시작한 요청 결과가 덮어쓰지 않도록 */
-  plan = null; planErr = null; planOff = !on;
+  plan = null; planErr = null; planOff = !on; introOpen = false;
   renderPlan(); renderHead();
   if (on) refresh();
 }
 
 /* ---------- 이 PC의 토큰 ---------- */
+/* 일별 막대. 7일 이하면 막대 아래에 날짜 · 토큰 · 달러 · 고른 통화를 차례로 적고,
+   그보다 길면 막대만 그리고 7일 간격으로 날짜만 적는다 (값은 막대에 마우스를 올리면 보임) */
 function dayChart(days) {
-  const W = 380, H = 92, padB = 15, padT = 13, max = Math.max(1, ...days.map(d => d.total));
-  const step = (W - 8) / days.length, bw = Math.min(30, step - 10);
+  const t = T(), wide = days.length <= 7, withFx = !!cur(), W = 380, barH = 66, padT = 4;
+  const H = barH + padT + (wide ? (withFx ? 54 : 42) : 15), max = Math.max(1, ...days.map(d => d.total));
+  const step = (W - 8) / days.length, bw = Math.min(30, Math.max(3, step * (wide ? .6 : .68)));
   let g = "";
   days.forEach((d, i) => {
-    const today = i === days.length - 1;
-    const h = d.total ? Math.max(2, d.total / max * (H - padB - padT)) : 0, x = 4 + i * step + (step - bw) / 2, y = H - padB - h;
-    g += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${today ? "var(--clay)" : "var(--accent)"}" opacity="${today ? 1 : .75}"><title>${d.label}(${d.wd}) · ${tok(d.total)} 토큰 · 출력 ${tok(d.out)} · ${usd(d.cost)}</title></rect>`;
-    if (d.total) g += `<text class="val" x="${(x + bw / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}" text-anchor="middle">${tok(d.total)}</text>`;
-    g += `<text class="${today ? "today" : ""}" x="${(x + bw / 2).toFixed(1)}" y="${H - 2}" text-anchor="middle">${today ? "오늘" : d.label + " " + d.wd}</text>`;
+    const today = i === days.length - 1, cx = (4 + i * step + step / 2).toFixed(1);
+    const h = d.total ? Math.max(2, d.total / max * barH) : 0, x = 4 + i * step + (step - bw) / 2, y = padT + barH - h;
+    g += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="${wide ? 3 : 1.5}" fill="${today ? "var(--clay)" : "var(--accent)"}" opacity="${today ? 1 : .75}"><title>${d.label}(${wd(d)}) · ${tok(d.total)} ${t.tokens} · ${t.out} ${tok(d.out)} · ${usd(d.cost)}${withFx ? " · " + fx(d.cost) : ""}</title></rect>`;
+    const day = today ? t.today : wide ? d.label + " " + wd(d) : d.label, base = padT + barH + 12;
+    if (wide) {
+      g += `<text class="${today ? "today" : ""}" x="${cx}" y="${base}" text-anchor="middle">${day}</text>
+        <text class="tk" x="${cx}" y="${base + 13}" text-anchor="middle">${d.total ? tok(d.total) : "–"}</text>
+        <text class="val" x="${cx}" y="${base + 26}" text-anchor="middle">${d.total ? usd(d.cost) : ""}</text>`;
+      if (withFx) g += `<text x="${cx}" y="${base + 38}" text-anchor="middle">${d.total ? fxShort(d.cost) : ""}</text>`;
+    } else if ((days.length - 1 - i) % 7 === 0 || (i === 0 && (days.length - 1) % 7 >= 3)) {   /* 첫날도 (옆 글자와 겹치지 않으면) */
+      /* 막대가 좁아 글자가 양 끝에서 잘리지 않게 첫날은 왼쪽, 오늘은 오른쪽에 맞춘다 */
+      const [ax, anchor] = today ? [x + bw, "end"] : i === 0 ? [x, "start"] : [+cx, "middle"];
+      g += `<text class="${today ? "today" : ""}" x="${ax.toFixed(1)}" y="${base}" text-anchor="${anchor}">${day}</text>`;
+    }
   });
   return `<svg class="chart" viewBox="0 0 ${W} ${H}">${g}</svg>`;
 }
+/* 기간 합계 · 일 평균 · 가장 많이 쓴 날 */
+function sumDays(days) {
+  return days.reduce((a, d) => ({total: a.total + d.total, cost: a.cost + d.cost, in: a.in + d.in, out: a.out + d.out,
+    cw: a.cw + d.cw, cr: a.cr + d.cr, used: a.used + (d.total > 0 ? 1 : 0)}), {total: 0, cost: 0, in: 0, out: 0, cw: 0, cr: 0, used: 0});
+}
+function periodDays(p) {
+  const n = p === "month" ? +local.today.date.slice(8, 10) : +p;
+  return local.days.slice(-n);
+}
+function periodStats(days, s) {
+  const t = T(), peak = days.reduce((a, d) => d.total > (a?.total || 0) ? d : a, null);
+  const avg = {total: s.total / days.length, cost: s.cost / days.length};
+  return `<div class="stats num">
+    <div><span>${t.avg}</span><b>${tok(avg.total)}</b><i>${usd(avg.cost)}</i>${cur() ? `<i>${fx(avg.cost)}</i>` : ""}</div>
+    <div><span>${t.peak}</span>${peak ? `<b>${tok(peak.total)}</b><i>${peak.label}(${wd(peak)})</i><i>${usd(peak.cost)}${cur() ? " · " + fxShort(peak.cost) : ""}</i>` : `<b>–</b>`}</div>
+    <div><span>${t.used}</span><b>${s.used}<small>${t.ofDays(days.length)}</small></b><i>${t.out} ${tok(s.out)}</i><i>${t.cr} ${tok(s.cr)}</i></div>
+  </div>`;
+}
+const rowName = r => r.rest ? T().others(r.count) : (r.label || r.name);
 function hbars(rows, color) {
-  if (!rows.length) return `<div class="msg">기록 없음</div>`;
+  if (!rows.length) return `<div class="msg">${T().none}</div>`;
   const max = Math.max(1, ...rows.filter(r => !r.rest).map(r => r.total));
-  return `<div class="hbars num">${rows.map(r => `<span class="n${r.rest ? " rest" : ""}" title="${esc(r.label || r.name)}">${esc(r.label || r.name)}</span>
+  return `<div class="hbars num">${rows.map(r => `<span class="n${r.rest ? " rest" : ""}" title="${esc(rowName(r))}">${esc(rowName(r))}</span>
     <span class="b"><i class="${r.rest ? "rest" : ""}" style="width:${Math.min(100, r.total / max * 100).toFixed(1)}%${color && !r.rest ? ";background:" + color : ""}"></i></span>
-    <span class="x">${tok(r.total)}<small>${usd(r.cost)}</small></span>`).join("")}</div>`;
+    <span class="x" title="${usd(r.cost)}${cur() ? " · " + fx(r.cost) : ""}">${tok(r.total)}<small>${usd(r.cost)}</small>${cur() ? `<small>${fxShort(r.cost)}</small>` : ""}</span>`).join("")}</div>`;
 }
 /* 접을 수 있는 목록 머리: 접혀 있으면 오른쪽에 합계를 보여 준다 */
 const CHEV = `<svg class="chev" viewBox="0 0 10 10"><path d="M2 3.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const isFolded = id => (conf.collapsed || []).includes(id);
 function foldHead(id, title, rows, right) {
-  const closed = isFolded(id);
+  const t = T(), closed = isFolded(id);
   const sum = rows.reduce((a, r) => ({total: a.total + r.total, cost: a.cost + r.cost}), {total: 0, cost: 0});
   const top = rows.find(r => !r.rest);
   const n = rows.reduce((a, r) => a + (r.rest ? r.count || 0 : 1), 0);
-  const summary = top ? `${esc(top.label || top.name)}${n > 1 ? ` 외 ${n - 1}개` : ""} · <b>${tok(sum.total)}</b> ${usd(sum.cost)}` : "기록 없음";
+  const summary = top ? `${esc(rowName(top))}${n > 1 ? t.andMore(n - 1) : ""} · <b>${tok(sum.total)}</b> ${usd(sum.cost)} ${fxShort(sum.cost)}` : t.none;
   return `<div class="sec fold${closed ? " closed" : ""}" data-fold="${id}" role="button" tabindex="0" aria-expanded="${!closed}"
-    title="${closed ? "펼치기" : "접기"}">${CHEV}${title}${closed ? `<span class="sum num">${summary}</span>` : ""}${right}</div>`;
+    title="${closed ? t.unfold : t.fold}">${CHEV}${title}${closed ? `<span class="sum num">${summary}</span>` : ""}${right}</div>`;
 }
 function toggleFold(id) {
   const c = new Set(conf.collapsed || []);
@@ -307,55 +494,150 @@ function toggleFold(id) {
   pywebview.api.set_conf("collapsed", conf.collapsed);
   renderLocal();
 }
+function emptyState() {   /* 기록이 하나도 없을 때 무엇을 하면 되는지 */
+  const t = T(), [h, p] = !local.has_dir ? t.emptyNoDir : !local.files ? t.emptyNoFile : t.emptyOld;
+  return `<div class="msg"><b>${h}</b>${p}</div>`;
+}
 function renderLocal() {
-  if (!local) return;
-  const range = conf.proj_range === "week" ? "week" : "today";
-  const key = JSON.stringify([local.error, local.today, local.days, local.models, local.projects, local.unpriced, range, conf.collapsed]);
+  if (!local) { $("#tok-body").innerHTML = `<div class="msg">${T().reading}</div>`; return; }
+  const range = conf.proj_range === "period" ? "period" : "today";
+  const p = I18N.ko.periods[conf.period] ? conf.period : "7";
+  const key = JSON.stringify([local.error, local.today, local.days, local.models, local.projects, local.unpriced, local.files,
+    range, p, lang(), cur(), cur() && rateOf(cur()), conf.collapsed]);
   if (key === lastTokKey) return;   /* 바뀐 게 없으면 다시 그리지 않음 */
   lastTokKey = key;
-  if (local.error) { $("#tok-body").innerHTML = `<div class="msg bad">${esc(local.error)}</div>`; return; }
-  const t = local.today, week = local.days.reduce((a, d) => ({total: a.total + d.total, cost: a.cost + d.cost}), {total: 0, cost: 0});
-  let html = `<div class="tiles">
-    <div class="tile"><div class="k"><span>오늘 토큰</span><span class="num">출력 ${tok(t.out)}</span></div>
-      <div class="v num">${tok(t.total)}</div><div class="s num">7일 ${tok(week.total)}</div></div>
-    <div class="tile"><div class="k"><span>오늘 API 환산</span><span>추정</span></div>
-      <div class="v num">${usd(t.cost)}</div><div class="s num">7일 ${usd(week.cost)}</div></div>
-  </div>
-  <div class="meta num"><span>입력 <b>${tok(t.in)}</b></span><span>출력 <b>${tok(t.out)}</b></span>
-    <span>캐시 쓰기 <b>${tok(t.cw)}</b></span><span>캐시 읽기 <b>${tok(t.cr)}</b></span></div>
-  <div class="sec">최근 7일</div>${dayChart(local.days)}
-  ${foldHead("models", "모델별", local.models, `<span class="r">7일</span>`)}
-  ${isFolded("models") ? "" : hbars(local.models, "var(--clay)")}
-  ${foldHead("projects", "프로젝트별", local.projects[range] || [], `<span class="r seg" id="seg">
-    <button data-v="today" class="${range === "today" ? "on" : ""}">오늘</button><button data-v="week" class="${range === "week" ? "on" : ""}">7일</button></span>`)}
-  ${isFolded("projects") ? "" : hbars(local.projects[range] || [])}`;
-  if (local.unpriced?.length) html += `<div class="warnline">단가를 모르는 모델은 환산에서 뺐습니다: ${local.unpriced.map(esc).join(", ")}</div>`;
+  const t = T();
+  if (local.error) { $("#tok-body").innerHTML = `<div class="msg bad">${esc(t.scanErr(local.detail || local.error))}</div>`; return; }
+  if (local.days.every(d => !d.total)) { $("#tok-body").innerHTML = emptyState(); return; }
+  const td = local.today, days = periodDays(p), s = sumDays(days);
+  const pname = p === "month" ? t.thisMonth(+td.date.slice(5, 7) - 1) : t.last(t.periods[p]);
+  const projects = (range === "today" ? local.projects.today : local.projects[p]) || [];
+  /* 토큰 아래에 API 환산(달러), 그 아래에 고른 통화 */
+  const tile = (name, right, a) => `<div class="tile"><div class="k"><span>${name}</span><span class="num">${right}</span></div>
+    <div class="v num">${tok(a.total)}<small>${t.tokens}</small></div>
+    <div class="cost num">${usd(a.cost)}</div>${cur() ? `<div class="fx num">${fx(a.cost)}</div>` : ""}</div>`;
+  let html = `<div class="tiles">${tile(t.today, t.out + " " + tok(td.out), td)}${tile(pname, t.est, s)}</div>
+  <div class="meta num"><span>${t.todayIn} <b>${tok(td.in)}</b></span><span>${t.out} <b>${tok(td.out)}</b></span>
+    <span>${t.cw} <b>${tok(td.cw)}</b></span><span>${t.cr} <b>${tok(td.cr)}</b></span></div>
+  <div class="sec">${t.daily}<span class="r seg" id="period">${Object.entries(t.periods).map(([v, n]) =>
+    `<button data-v="${v}" class="${p === v ? "on" : ""}">${n}</button>`).join("")}</span></div>
+  ${dayChart(days)}${periodStats(days, s)}
+  ${foldHead("models", t.models, local.models[p] || [], `<span class="r">${t.periods[p]}</span>`)}
+  ${isFolded("models") ? "" : hbars(local.models[p] || [], "var(--clay)")}
+  ${foldHead("projects", t.projects, projects, `<span class="r seg" id="seg">
+    <button data-v="today" class="${range === "today" ? "on" : ""}">${t.today}</button><button data-v="period" class="${range === "period" ? "on" : ""}">${t.periods[p]}</button></span>`)}
+  ${isFolded("projects") ? "" : hbars(projects)}`;
+  if (local.unpriced?.length) html += `<div class="warnline">${t.unpriced}${local.unpriced.map(esc).join(", ")}</div>`;
   $("#tok-body").innerHTML = html;
   $("#seg").querySelectorAll("button").forEach(b => b.onclick = () => {
     conf.proj_range = b.dataset.v; pywebview.api.set_conf("proj_range", conf.proj_range); renderLocal();
+  });
+  $("#period").querySelectorAll("button").forEach(b => b.onclick = () => {
+    conf.period = b.dataset.v; pywebview.api.set_conf("period", conf.period); renderLocal();
   });
 }
 
 /* ---------- 머리 · 시간 표시 ---------- */
 function renderHead() {
-  const busy = !!inflight;
+  const t = T(), busy = !!inflight;
   const localOk = local && !local.error;
-  $("#dot").className = "dot " + (busy ? "busy" : planOff ? (localOk ? "ok" : "") :
+  const noPlan = planOff || conf.show_plan === false;
+  $("#dot").className = "dot " + (busy ? "busy" : noPlan ? (localOk ? "ok" : "") :
     planErr ? (planErr.kind === "auth" ? "warn" : "bad") : plan ? "ok" : "");
-  let s = busy ? "가져오는 중…" : "";
-  if (!busy && planOff) {
-    if (localOk) s = `토큰 기록 ${hhmm(local.scanned)}에 확인 · 플랜 한도 꺼짐`;
+  let s = busy ? t.busy : "";
+  if (!busy && noPlan) {
+    if (localOk) s = t.localAt(hhmm(local.scanned)) + (conf.show_plan === false ? "" : " · " + t.planOffHead);
   } else if (!busy) {
     const at = planErr?.fetched || plan?.fetched;
-    if (planErr) s = `확인 실패${at ? " · " + hhmm(at) : ""}`;
-    else if (plan) s = `${hhmm(plan.fetched)}에 확인 (${ago(plan.fetched)}) · ${Math.round(conf.interval / 60)}분마다`;
+    if (planErr) s = `${t.failAt}${at ? " · " + hhmm(at) : ""}`;
+    else if (plan) s = t.checked(hhmm(plan.fetched), ago(plan.fetched), Math.round(conf.interval / 60));
   }
   $("#sub").textContent = s;
-  $("#tok-r").textContent = local && !local.error ? `파일 ${local.files}개 · ${hhmm(local.scanned)}` : "";
+  $("#tok-r").textContent = localOk ? t.files(local.files, hhmm(local.scanned)) : "";
 }
 function tickClock() {   /* 남은 시간 글자만 바꾼다 (innerHTML 다시 그리지 않음) */
   document.querySelectorAll("[data-reset]").forEach(e => { const v = left(+e.dataset.reset); if (e.textContent !== v) e.textContent = v; });
   renderHead();
+}
+
+/* ---------- 고정 글자 · 설정 ---------- */
+function applyLang() {
+  const t = T();
+  document.documentElement.lang = lang();
+  $("#title").textContent = t.title;
+  $("#refresh-t").textContent = t.refresh; $("#refresh").title = t.refreshTip;
+  $("#pin").title = t.pin; $("#gear").title = t.settings;
+  $("#plan-t").textContent = t.planTitle; $("#plan-off").textContent = t.planOff; $("#plan-off").title = t.planOffTip;
+  $("#open-web").textContent = t.web; $("#open-web").title = t.webTip;
+  $("#tok-t").textContent = t.tokTitle;
+  $("#set-t").textContent = t.settings; $("#set-close").textContent = t.close;
+  $("#l-lang").textContent = t.lang; $("#l-cur").textContent = t.cur; $("#l-rate").textContent = t.rate;
+  $("#l-int").textContent = t.interval; $("#l-auto").textContent = t.autostart; $("#l-plan").textContent = t.showPlan;
+  $("#set-note").textContent = t.note; $("#set-note").className = "note";
+  $("#est").textContent = t.estFoot; $("#est").title = t.estTip; $("#fx-link").title = t.fxTip;
+  applyTheme();
+  fillSettings();
+  lastPlanHTML = lastPlanErrHTML = lastTokKey = "";   /* 글자가 바뀌었으니 다시 그린다 */
+  renderPlan(); renderLocal(); renderHead();
+}
+function fillSettings() {
+  const t = T(), opt = (v, n, on) => `<option value="${v}"${on ? " selected" : ""}>${esc(n)}</option>`;
+  $("#s-lang").innerHTML = opt("auto", t.langAuto, !["ko", "en"].includes(conf.lang)) + opt("ko", "한국어", conf.lang === "ko") + opt("en", "English", conf.lang === "en");
+  const c = conf.currency || "auto";
+  $("#s-cur").innerHTML = opt("auto", t.curAuto(conf.sys_currency || "USD"), c === "auto") + opt("USD", t.usdOnly, c === "USD") +
+    Object.keys(conf.currencies || {}).map(k => opt(k, k, c === k)).join("");
+  const iv = [60, 120, 300, 600, 900, 1800];
+  if (!iv.includes(conf.interval)) iv.push(conf.interval);
+  $("#interval").innerHTML = iv.sort((a, b) => a - b).map(v => opt(v, t.minutes(Math.round(v / 60)), v === conf.interval)).join("");
+  $("#s-auto").checked = !!conf.autostart;
+  $("#s-plan").checked = conf.show_plan !== false;
+  showRate();
+}
+function showRate() {   /* 환율 칸과 아래쪽 '$1 = ₩1,500' 글자 */
+  const c = cur(), inp = $("#s-rate");
+  $("#l-rate").hidden = inp.parentElement.hidden = !c;
+  $("#fx-link").hidden = !c;
+  if (!c) return;
+  if (document.activeElement !== inp) inp.value = rateOf(c).toLocaleString(LOCALE(), {maximumFractionDigits: 4});
+  inp.classList.remove("bad");
+  $("#s-rate-c").textContent = c;
+  $("#fx-link").textContent = "$1 = " + new Intl.NumberFormat(LOCALE(), {style: "currency", currency: c, maximumFractionDigits: 4}).format(rateOf(c));
+}
+function rerender() { lastPlanHTML = ""; lastTokKey = ""; renderPlan(); renderLocal(); showRate(); }
+function openSettings(focusRate) {
+  $("#settings").hidden = false;
+  if (focusRate && cur()) $("#s-rate").focus();
+}
+function bindSettings() {
+  const note = (msg, bad) => { const n = $("#set-note"); n.textContent = msg || T().note; n.className = "note" + (bad ? " bad" : ""); };
+  $("#gear").onclick = () => { $("#settings").hidden ? openSettings() : ($("#settings").hidden = true); $("#gear").classList.toggle("on", !$("#settings").hidden); };
+  $("#set-close").onclick = () => { $("#settings").hidden = true; $("#gear").classList.remove("on"); };
+  $("#fx-link").onclick = () => { openSettings(true); $("#gear").classList.add("on"); };
+  $("#s-lang").onchange = e => { conf.lang = e.target.value; pywebview.api.set_conf("lang", conf.lang); applyLang(); };
+  $("#s-cur").onchange = e => { conf.currency = e.target.value; pywebview.api.set_conf("currency", conf.currency); rerender(); };
+  $("#interval").onchange = async e => { conf.interval = +e.target.value; await pywebview.api.set_conf("interval", conf.interval); schedule(); renderHead(); };
+  $("#s-auto").onchange = async e => {
+    const on = e.target.checked, ok = await pywebview.api.set_conf("autostart", on);
+    if (ok) conf.autostart = on; else { e.target.checked = !on; note(T().autoFail, true); }
+  };
+  $("#s-plan").onchange = e => {
+    conf.show_plan = e.target.checked; pywebview.api.set_conf("show_plan", conf.show_plan);
+    renderPlan(); renderHead(); if (conf.show_plan) refresh();
+  };
+  /* 환율: Enter나 다른 곳을 누르면 저장, Esc는 되돌리기. 잘못된 값이면 빨간 테두리 후 원래 값으로 */
+  const inp = $("#s-rate");
+  inp.onfocus = () => { inp.value = String(rateOf(cur())); inp.select(); };
+  inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); else if (e.key === "Escape") { inp.value = String(rateOf(cur())); inp.blur(); } };
+  inp.onblur = async () => {
+    const c = cur(); if (!c) return;
+    const v = Number(inp.value.replace(/[,\s₩¥€£$원円]/g, ""));   /* 음수·글자는 NaN·음수로 남아 아래에서 걸러진다 */
+    if (!(v > 0 && v <= 1e6)) { inp.classList.add("bad"); note(T().rateBad, true); setTimeout(() => { showRate(); note(); }, 1200); return; }
+    if (v !== rateOf(c) && await pywebview.api.set_conf("fx_rate", {currency: c, rate: v})) {
+      conf.fx = {...(conf.fx || {}), [c]: Math.round(v * 1e4) / 1e4};
+      rerender();
+    }
+    note(); showRate();
+  };
 }
 
 /* ---------- 가져오기 ---------- */
@@ -365,13 +647,14 @@ function refresh() {
   btn.classList.add("spin"); btn.disabled = true;
   inflight = (async () => {
     try {
-      const [p, l] = await Promise.all([pywebview.api.plan(), pywebview.api.local()]);
+      const hidden = conf.show_plan === false;   /* 카드를 숨겼으면 한도를 묻지 않는다 */
+      const [p, l] = await Promise.all([hidden ? {kind: "disabled"} : pywebview.api.plan(), pywebview.api.local()]);
       if (p && p.ok) { plan = p; planErr = null; planOff = false; }
       else if (p && p.kind === "disabled") { plan = null; planErr = null; planOff = true; }
-      else { planErr = p || {kind: "internal", error: "응답 없음"}; planOff = false; }
+      else { planErr = p || {kind: "internal", code: "none"}; planOff = false; }
       if (l) local = l;
     } catch (e) {
-      planErr = {kind: "internal", error: "위젯 내부 오류", detail: String(e).slice(0, 120)};
+      planErr = {kind: "internal", code: "widget", detail: String(e).slice(0, 120)};
     } finally {   /* 어떤 경우에도 버튼·표시를 원래대로 */
       inflight = null;
       btn.classList.remove("spin"); btn.disabled = false;
@@ -394,27 +677,28 @@ function schedule() {
 function applyTheme() {
   if (conf.theme === "light" || conf.theme === "dark") document.documentElement.dataset.theme = conf.theme;
   else delete document.documentElement.dataset.theme;
-  $("#theme").title = "테마: " + (THEMES[conf.theme] || "자동");
+  $("#theme").title = T().theme + ": " + (T().themes[conf.theme] || T().themes.auto);
 }
 
 window.addEventListener("pywebviewready", async () => {
   conf = await pywebview.api.get_conf();
-  applyTheme();
   $("#pin").classList.toggle("on", !!conf.topmost);
-  const sel = $("#interval");
-  if (![...sel.options].some(o => +o.value === conf.interval)) sel.add(new Option(Math.round(conf.interval / 60) + "분", conf.interval));
-  sel.value = String(conf.interval);
-  sel.onchange = async () => { conf.interval = +sel.value; await pywebview.api.set_conf("interval", conf.interval); schedule(); renderHead(); };
+  bindSettings();
+  applyLang();
   $("#refresh").onclick = () => refresh();
   $("#pin").onclick = () => { conf.topmost = !conf.topmost; $("#pin").classList.toggle("on", conf.topmost); pywebview.api.set_conf("topmost", conf.topmost); };
-  $("#theme").onclick = () => { const k = Object.keys(THEMES); conf.theme = k[(k.indexOf(conf.theme) + 1) % k.length]; applyTheme(); pywebview.api.set_conf("theme", conf.theme); };
+  $("#theme").onclick = () => { const k = Object.keys(I18N.ko.themes); conf.theme = k[(k.indexOf(conf.theme) + 1) % k.length]; applyTheme(); pywebview.api.set_conf("theme", conf.theme); };
   $("#open-web").onclick = () => pywebview.api.open_usage_page();
   $("#plan-off").onclick = () => setPlanEnabled(false);
-  $("#plan-body").addEventListener("click", e => { if (e.target.closest("[data-act=plan-on]")) setPlanEnabled(true); });
+  $("#plan-body").addEventListener("click", e => {
+    if (e.target.closest("[data-act=plan-on]")) setPlanEnabled(true);
+    else if (e.target.closest("[data-act=intro]")) { introOpen = !introOpen; renderPlan(); }
+  });
   const fold = e => { const h = e.target.closest("[data-fold]"); if (h && !e.target.closest(".seg")) { e.preventDefault(); toggleFold(h.dataset.fold); } };
   $("#tok-body").addEventListener("click", fold);
   $("#tok-body").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") fold(e); });
   $("#ver").textContent = conf.version ? "v" + conf.version : "";
+  $("#ver").title = lang() === "ko" ? "비공식 위젯 · Anthropic과 관계없음" : "Unofficial widget · not affiliated with Anthropic";
   refresh();
   schedule();
   setInterval(tickLocal, 30000);

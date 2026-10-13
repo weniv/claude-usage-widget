@@ -9,15 +9,28 @@ Windows 바탕화면에 띄워 두는 작은 창(420px)입니다. **이 PC에서
 
 [English summary](#english)
 
+<p>
+  <img src="docs/screenshot-ko.png" width="300" alt="다크 테마 · 한국어 · 최근 7일">
+  &nbsp;
+  <img src="docs/screenshot-en.png" width="300" alt="라이트 테마 · 영어 · 최근 30일">
+</p>
+
+<sub>화면의 숫자와 프로젝트 이름은 예시 데이터입니다. 아래는 기간(7일 → 30일 → 이번 달)을 바꾸는 모습입니다.</sub>
+
+<img src="docs/periods.gif" width="300" alt="기간 바꾸기">
+
 ## 보여주는 것
 
 **이 PC의 Claude Code 토큰** (기본으로 켜져 있음, 네트워크를 쓰지 않음)
 
 - 오늘 쓴 토큰(입력·출력·캐시 쓰기·캐시 읽기)
-- 최근 7일 날짜별 막대그래프
-- 모델별 사용량(7일)
-- 프로젝트별 상위 5개(오늘 / 7일 전환). 프로젝트 이름은 작업 폴더 이름입니다.
+- 기간 통계: **최근 7일 / 최근 30일 / 이번 달**을 골라 합계, 일 평균, 가장 많이 쓴 날, 사용한 날 수를 봅니다
+- 날짜별 막대그래프. 7일 보기에서는 막대마다 토큰 → 달러 → 원화를 차례로 적고, 30일·이번 달은 막대에 마우스를 올리면 값이 보입니다
+- 모델별 사용량(고른 기간)
+- 프로젝트별 상위 5개(오늘 / 고른 기간 전환). 프로젝트 이름은 작업 폴더 이름입니다.
 - **API 환산 추정($)**: 같은 토큰을 Claude API 공개 단가로 썼다면 얼마인지 계산한 **추정치**입니다. 구독 요금과는 관계없습니다. 캐시 쓰기는 5분 TTL에 1.25배, 1시간 TTL에 2배, 빠른 모드는 2배로 계산합니다. 단가표는 `claude_usage_widget.pyw`의 `PRICES`에 있으며, 단가를 모르는 모델은 환산에서 빼고 화면에 따로 알려줍니다.
+- **내 통화(₩·¥·€ …)**: 달러 환산값을 환율로 바꾼 값을 달러 아래에 함께 보여 줍니다. 통화는 Windows 지역 설정을 따르고(한국이면 원화, 기본 1,500원), [설정]에서 바꾸거나 "달러만 표시"로 끌 수 있습니다. 환율 시세는 가져오지 않으니(네트워크를 쓰지 않음) 직접 고쳐 쓰세요. 아래쪽 `$1 = ₩1,500`을 누르면 바로 환율 칸으로 갑니다.
+- 기록이 하나도 없으면(Claude Code를 아직 안 썼거나 폴더가 없으면) 무엇을 하면 되는지 안내합니다.
 
 **플랜 한도** (기본으로 꺼져 있음, [아래](#플랜-한도-켜기-선택) 참고)
 
@@ -57,7 +70,11 @@ python  claude_usage_widget.pyw     # 오류를 콘솔에서 보고 싶을 때
 ```
 
 - 이미 켜져 있으면 새로 띄우지 않고, 켜져 있던 창을 앞으로 가져옵니다.
-- 머리의 버튼은 [새로고침], 테마(자동 → 라이트 → 다크), 핀(항상 위)입니다.
+- 머리의 버튼은 [새로고침], 테마(자동 → 라이트 → 다크), 핀(항상 위), 설정(톱니바퀴)입니다.
+- **설정**: 언어(자동 / 한국어 / English), 통화와 환율, 자동 새로고침 간격, **Windows 시작 시 실행**, 플랜 한도 카드 표시.
+  - 화면 언어는 Windows 언어를 따릅니다. 표시 언어나 지역 중 하나가 한국어면 한국어, 아니면 영어입니다.
+  - Windows 시작 시 실행은 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`에 `ClaudeUsageWidget` 값 하나를 넣고 뺍니다. 켜 둔 채 위젯 폴더나 exe를 옮기면 다음에 실행할 때 새 위치로 고쳐 둡니다.
+  - 플랜 한도를 쓰지 않으면 카드가 한 줄로 줄어들고, [플랜 한도 카드 표시]를 끄면 아예 숨깁니다.
 - [모델별]·[프로젝트별] 제목을 누르면 목록을 접고 펼 수 있습니다. 접으면 제목 옆에 가장 많이 쓴 항목과 합계만 보이고, 접은 상태는 다음에 켤 때도 이어집니다.
 - 모니터를 떼어 내서 저장된 창 위치가 화면 밖이면 기본 위치(주 모니터 오른쪽 위)로 다시 띄웁니다.
 
@@ -82,7 +99,7 @@ powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
 
 ## 플랜 한도 켜기 (선택)
 
-플랜 한도는 Claude Code가 이 PC에 저장해 둔 로그인 토큰으로 `GET https://api.anthropic.com/api/oauth/usage`를 불러 가져옵니다. 이 엔드포인트는 **공개 문서에 없고**, Anthropic은 [OAuth 인증을 Claude Code와 Anthropic 자체 앱의 일반적인 사용을 위한 것](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)이라고 안내합니다. 그래서 이 기능은 **기본으로 꺼져 있고**, 위젯의 플랜 한도 카드에서 안내를 읽고 [이해했고, 플랜 한도 켜기]를 눌러야 동작합니다. 카드 제목 줄의 [끄기]로 언제든 다시 끌 수 있습니다.
+플랜 한도는 Claude Code가 이 PC에 저장해 둔 로그인 토큰으로 `GET https://api.anthropic.com/api/oauth/usage`를 불러 가져옵니다. 이 엔드포인트는 **공개 문서에 없고**, Anthropic은 [OAuth 인증을 Claude Code와 Anthropic 자체 앱의 일반적인 사용을 위한 것](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)이라고 안내합니다. 그래서 이 기능은 **기본으로 꺼져 있고**, 위젯의 플랜 한도 카드에서 [켜는 방법]을 눌러 안내를 읽고 [이해했고, 플랜 한도 켜기]를 눌러야 동작합니다. 카드 제목 줄의 [끄기]로 언제든 다시 끌 수 있습니다.
 
 - 켜지 않아도 [웹에서 보기]로 claude.ai 사용량 페이지를 열어 같은 숫자를 볼 수 있습니다.
 - 꺼져 있으면 자격 증명 파일(`.credentials.json`)을 **열지도 않습니다**.
@@ -108,11 +125,11 @@ powershell -ExecutionPolicy Bypass -File .\build_exe.ps1
 
 | 파일 | 내용 |
 |---|---|
-| `widget.json` | 창 위치·크기, 항상 위, 새로고침 간격, 테마, 프로젝트 기간, 접은 목록, 플랜 한도 켜기 |
+| `widget.json` | 창 위치·크기, 항상 위, 새로고침 간격, 테마, 언어, 통계 기간, 프로젝트 기간, 통화·환율, 접은 목록, 플랜 한도 켜기·카드 표시 |
 | `usage_cache.json` | 응답별 토큰 수·모델·작업 폴더 이름·시각(최근 35일), 파일별 읽은 위치. 대화 내용은 저장하지 않음 |
 | `webview\` | WebView2 브라우저 데이터 |
 
-예전 버전처럼 스크립트(exe) 옆에 `widget.json`이 있으면 처음 한 번 그 설정을 이어받습니다. 위젯을 지우려면 이 폴더를 지우면 됩니다.
+예전 버전처럼 스크립트(exe) 옆에 `widget.json`이 있으면 처음 한 번 그 설정을 이어받습니다. 위젯을 지우려면 [설정]에서 Windows 시작 시 실행을 끈 뒤 이 폴더를 지우면 됩니다.
 
 ## 보안·개인정보
 
@@ -136,7 +153,8 @@ python -m unittest discover -s tests -v
 | 파일 | 내용 |
 |---|---|
 | `claude_usage_widget.pyw` | 데이터 가져오기(플랜 한도·jsonl 집계), 창, JS API |
-| `widget.html` | 화면(카드·타일·막대그래프, 다크/라이트) |
+| `widget.html` | 화면(카드·타일·막대그래프, 다크/라이트, 한국어/영어 글자) |
+| `docs/` | README 스크린샷(예시 데이터) |
 | `tests/` | 단위 테스트 |
 | `make_shortcut.ps1` | 바탕화면 바로가기 만들기 |
 | `build_exe.ps1` | PyInstaller exe 빌드 |
@@ -152,9 +170,11 @@ python -m unittest discover -s tests -v
 
 **Claude Usage Widget** is a small, unofficial Windows desktop widget (Python + pywebview / Edge WebView2) that shows:
 
-- **Local Claude Code token usage** — today, last 7 days, per model and per project, read incrementally from `~/.claude/projects/**/*.jsonl` (respects `CLAUDE_CONFIG_DIR`). Includes an *estimated* cost at public API prices. No network access.
+- **Local Claude Code token usage** — today, last 7 days, last 30 days or this month (total, daily average, peak day), per model and per project, read incrementally from `~/.claude/projects/**/*.jsonl` (respects `CLAUDE_CONFIG_DIR`). Includes an *estimated* cost at public API prices, optionally also shown in your currency (KRW, JPY, EUR, GBP, …; picked from your Windows region) at an exchange rate you set. No network access.
 - **Plan limits (opt-in, off by default)** — 5-hour session and weekly usage from the undocumented `api.anthropic.com/api/oauth/usage` endpoint, using the OAuth token Claude Code already stored locally. Because the endpoint is undocumented and Anthropic states that OAuth authentication is intended for Claude Code and Anthropic's own apps, you must explicitly enable it in the widget. When disabled, the credentials file is never opened. The token is never stored, logged, or passed to the UI.
 
 This project is not affiliated with, endorsed, or sponsored by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.
 
-Download the exe from [Releases](https://github.com/weniv/claude-usage-widget/releases), or run from source: `pip install -r requirements.txt` then `pythonw claude_usage_widget.pyw`. Settings and cache live in `%LOCALAPPDATA%\claude-usage-widget\`. The UI is in Korean. Licensed under MIT.
+The UI is in **English or Korean**, following your Windows language (changeable in Settings). Settings (gear icon) also cover currency and exchange rate, refresh interval, **Start with Windows** (a single `HKCU\...\Run` value, repaired automatically if you move the exe), and hiding the plan limits card.
+
+Download the exe from [Releases](https://github.com/weniv/claude-usage-widget/releases), or run from source: `pip install -r requirements.txt` then `pythonw claude_usage_widget.pyw`. Settings and cache live in `%LOCALAPPDATA%\claude-usage-widget\`. Licensed under MIT.

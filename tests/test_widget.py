@@ -33,20 +33,24 @@ class ParseUsage(unittest.TestCase):
                            "decimal_places": 2, "utilization": 24.68, "currency": "USD"},
            "seven_day_breakdown": {"rows": [{"key": "claude_code", "percent": 90}, {"key": "chat", "percent": 10}]}}
         r = cuw.parse_usage(d)
-        self.assertEqual([l["name"] for l in r["limits"]], ["5시간 세션", "주간 한도", "주간 · Opus"])
+        # 이름은 화면이 언어에 맞게 붙이므로 종류·모델만 넘긴다
+        self.assertEqual([(l["kind"], l["model"], l["weekly"]) for l in r["limits"]],
+                         [("session", "", False), ("weekly_all", "", True), ("weekly_scoped", "Opus", True)])
         self.assertTrue(r["limits"][2]["scoped"])
         utc = datetime.timezone.utc
         self.assertAlmostEqual(r["limits"][0]["resets"],
                                datetime.datetime(2026, 10, 10, 5, 20, 0, 687000, tzinfo=utc).timestamp())
         self.assertEqual(r["extra"]["used"], 12.34)
         self.assertEqual(r["extra"]["limit"], 50.0)
-        self.assertEqual([b["name"] for b in r["breakdown"]], ["Claude Code", "채팅"])
+        self.assertEqual([b["key"] for b in r["breakdown"]], ["claude_code", "chat"])
 
     def test_legacy_shape(self):
         r = cuw.parse_usage({"five_hour": {"utilization": 5, "resets_at": "2026-10-10T05:00:00Z"},
                              "seven_day": {"utilization": 50}, "seven_day_opus": None})
         self.assertEqual([l["kind"] for l in r["limits"]], ["session", "weekly_all"])
         self.assertIsNone(r["extra"])
+        r = cuw.parse_usage({"seven_day_opus": {"utilization": 3}})
+        self.assertEqual((r["limits"][0]["model"], r["limits"][0]["scoped"]), ("Opus", True))
 
     def test_rejects_unknown(self):
         with self.assertRaises(ValueError):
@@ -114,7 +118,39 @@ class ScannerTest(unittest.TestCase):
         sc = cuw.Scanner()
         self.assertEqual(sc.scan()["today"]["total"], 200)
         self.assertEqual(cuw.Scanner().scan()["today"]["total"], 200)
-        self.assertEqual({m["label"] for m in sc.summary()["models"]}, {"Opus 5", "Haiku 4.5"})
+        self.assertEqual({m["label"] for m in sc.summary()["models"]["7"]}, {"Opus 5", "Haiku 4.5"})
+
+    def test_periods(self):
+        # 오늘·10일 전·20일 전: 7일엔 오늘만, 30일엔 셋 다, 이번 달은 1일부터 오늘까지만
+        now = datetime.datetime.now().replace(hour=12, minute=0, second=0, microsecond=0)
+        ago = lambda n: (now - datetime.timedelta(days=n)).timestamp()
+        self.write(line(ago(0), "a", "1", output_tokens=1), line(ago(10), "b", "2", output_tokens=10),
+                   line(ago(20), "c", "3", output_tokens=100, cwd="C:\\work\\other"))
+        s = cuw.Scanner().scan()
+        self.assertEqual(len(s["days"]), cuw.SERIES_DAYS)
+        self.assertEqual(sum(d["total"] for d in s["days"]), 111)
+        tot = lambda rows: sum(r["total"] for r in rows)
+        self.assertEqual(tot(s["models"]["7"]), 1)
+        self.assertEqual(tot(s["models"]["30"]), 111)
+        month = sum(v for n, v in ((0, 1), (10, 10), (20, 100)) if (now - datetime.timedelta(days=n)).month == now.month)
+        self.assertEqual(tot(s["models"]["month"]), month)
+        self.assertEqual({p["name"] for p in s["projects"]["30"]}, {"demo", "other"})
+        self.assertEqual([p["name"] for p in s["projects"]["today"]], ["demo"])
+        self.assertEqual(s["days"][-1]["wd"], now.weekday())
+
+    def test_rest_row_has_count_not_text(self):
+        now = time.time()
+        self.write(*[line(now, f"m{i}", f"r{i}", output_tokens=10 + i, cwd=f"C:\\p{i}") for i in range(7)])
+        rows = cuw.Scanner().scan()["projects"]["today"]
+        self.assertEqual(len(rows), 6)
+        self.assertEqual((rows[-1]["rest"], rows[-1]["count"], rows[-1]["name"]), (True, 2, ""))
+        self.assertEqual(rows[-1]["total"], 10 + 11)
+
+    def test_empty_state_flags(self):
+        s = cuw.Scanner().scan()
+        self.assertEqual((s["files"], s["has_dir"]), (0, True))
+        with mock.patch.object(cuw, "PROJECTS", os.path.join(self.tmp.name, "nope")):
+            self.assertFalse(cuw.Scanner().scan()["has_dir"])
 
     def test_partial_last_line_and_old_records(self):
         now = time.time()
@@ -188,6 +224,106 @@ class ApiTest(unittest.TestCase):
             self.assertFalse(api.set_conf("collapsed", ["evil"]))
             self.assertFalse(api.set_conf("collapsed", "models"))
             self.assertEqual(conf["collapsed"], ["models", "projects"])
+            self.assertTrue(api.set_conf("period", "30"))
+            self.assertFalse(api.set_conf("period", "365"))
+            self.assertEqual(conf["period"], "30")
+            self.assertTrue(api.set_conf("proj_range", "period"))
+            self.assertFalse(api.set_conf("proj_range", "week"))
+            self.assertTrue(api.set_conf("lang", "en"))
+            self.assertFalse(api.set_conf("lang", "fr"))
+            self.assertTrue(api.set_conf("show_plan", False))
+            self.assertIs(conf["show_plan"], False)
+            self.assertTrue(api.set_conf("currency", "JPY"))
+            self.assertTrue(api.set_conf("currency", "USD"))
+            self.assertFalse(api.set_conf("currency", "XYZ"))
+            self.assertEqual(conf["currency"], "USD")
+
+    def test_fx_rate(self):
+        with mock.patch.object(cuw, "Scanner"), mock.patch.object(cuw, "save_json"):
+            conf = {"fx": {}}
+            api = cuw.Api(conf)
+            self.assertTrue(api.set_conf("fx_rate", {"currency": "KRW", "rate": 1385.456}))
+            self.assertTrue(api.set_conf("fx_rate", {"currency": "EUR", "rate": "0,9"}))  # 쉼표는 천 단위로 본다
+            self.assertEqual(conf["fx"], {"KRW": 1385.456, "EUR": 9.0})
+            self.assertTrue(api.set_conf("fx_rate", {"currency": "EUR", "rate": 0.91}))
+            for bad in (0, -5, 1e9, float("nan"), float("inf"), True, None, "abc", [1]):
+                self.assertFalse(api.set_conf("fx_rate", {"currency": "KRW", "rate": bad}), bad)
+            self.assertFalse(api.set_conf("fx_rate", {"currency": "USD", "rate": 1}))
+            self.assertFalse(api.set_conf("fx_rate", 1500))
+            self.assertEqual(conf["fx"], {"KRW": 1385.456, "EUR": 0.91})
+            with mock.patch.object(cuw, "system_locale", return_value=("ko", "KR")), \
+                    mock.patch.object(cuw, "get_autostart", return_value=None):
+                c = api.get_conf()
+            self.assertEqual((c["sys_lang"], c["sys_currency"], c["autostart"]), ("ko", "KRW", False))
+            self.assertEqual(c["currencies"]["KRW"], 1500)
+
+    def test_default_currency(self):
+        self.assertEqual(cuw.default_currency("KR"), "KRW")
+        self.assertEqual(cuw.default_currency("DE"), "EUR")
+        self.assertEqual(cuw.default_currency("US"), "USD")
+        self.assertEqual(cuw.default_currency(""), "USD")
+
+
+class FakeWinreg:
+    """HKCU\\...\\Run 하나만 흉내 낸다"""
+    HKEY_CURRENT_USER, REG_SZ = 1, 1
+
+    def __init__(self):
+        self.values = {}
+
+    class _Key:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def OpenKey(self, root, path):
+        return self._Key()
+
+    CreateKey = OpenKey
+
+    def QueryValueEx(self, k, name):
+        if name not in self.values:
+            raise FileNotFoundError(name)
+        return self.values[name], self.REG_SZ
+
+    def SetValueEx(self, k, name, _r, _t, value):
+        self.values[name] = value
+
+    def DeleteValue(self, k, name):
+        if name not in self.values:
+            raise FileNotFoundError(name)
+        del self.values[name]
+
+
+class AutostartTest(unittest.TestCase):
+    def test_on_off_and_heal(self):
+        reg = FakeWinreg()
+        with mock.patch.dict(sys.modules, {"winreg": reg}):
+            self.assertIsNone(cuw.get_autostart())
+            self.assertTrue(cuw.set_autostart(True))
+            cmd = cuw.get_autostart()
+            self.assertIn(os.path.abspath(cuw.__file__), cmd)
+            self.assertTrue(cmd.startswith('"'))
+            # 폴더를 옮겨 예전 경로가 남아 있으면 지금 위치로 고친다
+            reg.values[cuw.RUN_NAME] = '"C:\\old\\pythonw.exe" "C:\\old\\claude_usage_widget.pyw"'
+            cuw.heal_autostart()
+            self.assertEqual(cuw.get_autostart(), cmd)
+            self.assertTrue(cuw.set_autostart(False))
+            self.assertTrue(cuw.set_autostart(False))  # 이미 꺼져 있어도 성공
+            self.assertIsNone(cuw.get_autostart())
+            cuw.heal_autostart()  # 꺼져 있으면 새로 켜지 않는다
+            self.assertIsNone(cuw.get_autostart())
+
+    def test_set_conf_does_not_store_autostart(self):
+        with mock.patch.object(cuw, "Scanner"), mock.patch.object(cuw, "save_json") as sj, \
+                mock.patch.object(cuw, "set_autostart", return_value=True) as sa:
+            conf = {}
+            self.assertTrue(cuw.Api(conf).set_conf("autostart", True))
+            sa.assert_called_once_with(True)
+            sj.assert_not_called()
+            self.assertNotIn("autostart", conf)
 
     def test_load_conf_with_bom(self):
         with tempfile.TemporaryDirectory() as d:
@@ -203,13 +339,27 @@ class ApiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             new, old = os.path.join(d, "new.json"), os.path.join(d, "old.json")
             with open(old, "w", encoding="utf-8") as f:
-                json.dump({"x": 10, "theme": "dark", "interval": "bad", "evil": 1, "collapsed": ["models", "x"]}, f)
+                json.dump({"x": 10, "theme": "dark", "interval": "bad", "evil": 1, "collapsed": ["models", "x"],
+                           "proj_range": "week", "period": "year", "lang": "fr", "currency": "XYZ",
+                           "fx": {"KRW": 1400, "JPY": -1, "XYZ": 5}, "show_plan": "no"}, f)
             with mock.patch.multiple(cuw, CONF=new, LEGACY_CONF=old):
                 c = cuw.load_conf()
             self.assertEqual((c["x"], c["theme"], c["interval"]), (10, "dark", 300))
             self.assertNotIn("evil", c)
             self.assertIs(c["plan_enabled"], False)
             self.assertEqual(c["collapsed"], ["models"])
+            self.assertEqual(c["proj_range"], "period")  # 예전 "week"는 "기간"으로
+            self.assertEqual(c["period"], "7")
+            self.assertEqual((c["lang"], c["currency"], c["show_plan"]), ("auto", "auto", True))
+            self.assertEqual(c["fx"], {"KRW": 1400})
+
+    def test_load_conf_migrates_dev_krw_rate(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "w.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump({"krw_rate": 1380}, f)
+            with mock.patch.multiple(cuw, CONF=path, LEGACY_CONF=os.path.join(d, "none.json")):
+                self.assertEqual(cuw.load_conf()["fx"], {"KRW": 1380})
 
 
 if __name__ == "__main__":

@@ -10,16 +10,21 @@ Claude 사용량 위젯 (비공식, Anthropic과 관계없음) — 바탕화면 
     토큰은 가져올 때마다 새로 읽고, 어디에도 저장·기록하지 않으며 화면(JS)으로도 넘기지 않는다.
     자격 증명 파일은 읽기만 한다 (갱신·수정하지 않음).
   - 이 PC의 Claude Code 토큰: ~/.claude/projects/**/*.jsonl 의 응답 기록을 모아
-    오늘·최근 7일·모델별·프로젝트별로 보여준다. 파일마다 읽은 위치를 기억해 새로 붙은 부분만 읽는다.
+    오늘·최근 7일·최근 30일·이번 달, 모델별·프로젝트별로 보여준다. 비용은 API 단가 환산(USD)과
+    고른 통화(환율은 화면에서 고침, 원화 기본 1,500원)로 함께 보여준다. 파일마다 읽은 위치를 기억해 새로 붙은 부분만 읽는다.
     (캐시: %LOCALAPPDATA%\\claude-usage-widget\\usage_cache.json)
   - Claude Code 설정 폴더를 옮겼다면(환경 변수 CLAUDE_CONFIG_DIR) 그 폴더를 쓴다.
 
-창 위치·크기, 항상 위, 새로고침 간격, 테마, 플랜 한도 켜기는 %LOCALAPPDATA%\\claude-usage-widget\\widget.json에
-저장한다 (예전 위치인 스크립트·exe 옆 widget.json이 있으면 처음 한 번 이어받는다).
+화면 글자는 한국어·영어 두 가지이고 Windows 언어를 따른다(설정에서 바꿀 수 있음). 그래서 여기서는 화면에 보일
+문장을 만들지 않고 코드(오류 종류·한도 종류)만 넘기며, 문장은 widget.html이 언어에 맞게 만든다.
+
+창 위치·크기, 항상 위, 새로고침 간격, 테마, 언어, 통계 기간, 통화·환율, 플랜 한도 켜기·카드 표시는
+%LOCALAPPDATA%\\claude-usage-widget\\widget.json에 저장한다 (예전 위치인 스크립트·exe 옆 widget.json이 있으면
+처음 한 번 이어받는다). Windows 시작 시 실행은 HKCU\\...\\Run 레지스트리 값 하나로 켜고 끈다.
 """
 import datetime, glob, json, ntpath, os, re, socket, sys, threading, time, urllib.error, urllib.request
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 FROZEN = getattr(sys, "frozen", False)
 BASE = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
 ASSETS = os.path.dirname(os.path.abspath(__file__))
@@ -33,12 +38,25 @@ PROJECTS = os.path.join(CLAUDE_DIR, "projects")
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"  # 공개 문서에 없는 엔드포인트라 바뀔 수 있다
 PROFILE_URL = "https://api.anthropic.com/api/oauth/profile"  # 플랜 이름용 (역시 공개 문서에 없음)
 PROFILE_TTL = 3600        # 플랜은 자주 바뀌지 않으니 프로필은 1시간에 한 번만 묻는다
-TITLE = "Claude 사용량"
+TITLES = {"ko": "Claude 사용량", "en": "Claude Usage"}  # 창 제목 (이미 떠 있는 창을 찾을 때도 쓴다)
 RETAIN_DAYS = 35          # 이보다 오래된 응답 기록은 캐시에 두지 않는다
+SERIES_DAYS = 31          # 일별 통계를 넘기는 날 수 (최근 30일과 이번 달을 모두 담는다)
+PERIODS = ("7", "30", "month")  # 통계 기간: 최근 7일, 최근 30일, 이번 달
+LANGS = ("auto", "ko", "en")
 MIN_INTERVAL = 60         # 자동 새로고침 최소 간격(초)
 MAX_INTERVAL = 3600
 FOLDS = ("models", "projects")  # 접을 수 있는 목록
-AUTH_MSG = "Claude Code를 한 번 실행하면 토큰이 갱신됩니다"
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+RUN_NAME = "ClaudeUsageWidget"
+
+# 1달러가 얼마인지의 기본값. 시세를 가져오지 않으므로(네트워크를 쓰지 않음) 사용자가 화면에서 고친다.
+CURRENCIES = {"KRW": 1500, "JPY": 150, "CNY": 7.1, "TWD": 30, "INR": 88, "EUR": 0.86, "GBP": 0.75,
+              "CAD": 1.38, "AUD": 1.52}
+MIN_RATE, MAX_RATE = 0.0001, 1000000.0
+EURO = ("AT", "BE", "CY", "DE", "EE", "ES", "FI", "FR", "GR", "HR", "IE", "IT", "LT", "LU", "LV", "MT", "NL",
+        "PT", "SI", "SK")
+REGION_CURRENCY = {"KR": "KRW", "JP": "JPY", "CN": "CNY", "TW": "TWD", "IN": "INR", "GB": "GBP", "CA": "CAD",
+                   "AU": "AUD", **{r: "EUR" for r in EURO}}
 
 
 def load_json(path, default):
@@ -78,6 +96,89 @@ def num(v):
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
+# ---------------------------------------------------------------- 언어·지역 (Windows 설정)
+def system_locale():
+    """(언어, 지역) — 예: ('ko', 'KR'). 화면 표시 언어나 사용자 지역 중 하나라도 한국어면 'ko'.
+    (영어 Windows에 지역만 한국으로 둔 경우가 많아서) 확인하지 못하면 ('en', '')"""
+    lang, region = "en", ""
+    try:
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        buf = ctypes.create_unicode_buffer(85)
+        if k32.GetUserDefaultLocaleName(buf, 85):
+            name = buf.value  # 'ko-KR', 'en-US', 'zh-Hant-TW' …
+            region = name.rsplit("-", 1)[-1].upper() if "-" in name else ""
+            if name.lower().startswith("ko"):
+                lang = "ko"
+        if k32.GetUserDefaultUILanguage() & 0x3FF == 0x12:  # LANG_KOREAN
+            lang = "ko"
+    except Exception:
+        pass
+    return lang, region
+
+
+def default_currency(region):
+    return REGION_CURRENCY.get(region, "USD")
+
+
+def fx_rate(v):
+    """화면에서 넣은 환율 → 숫자 (숫자가 아니거나 범위를 벗어나면 None)"""
+    if isinstance(v, str):
+        try:
+            v = float(v.replace(",", "").strip())
+        except ValueError:
+            return None
+    v = num(v)
+    if v is None or not MIN_RATE <= v <= MAX_RATE:  # NaN·무한대도 여기서 걸러진다
+        return None
+    return round(v, 4)
+
+
+# ---------------------------------------------------------------- Windows 시작 시 실행 (HKCU Run)
+def autostart_command():
+    """지금 실행 중인 위젯을 다시 띄우는 명령. 소스로 실행 중이면 콘솔 없는 pythonw.exe로"""
+    if FROZEN:
+        return f'"{sys.executable}"'
+    exe = sys.executable
+    pyw = os.path.join(os.path.dirname(exe), "pythonw.exe")
+    if os.path.exists(pyw):
+        exe = pyw
+    return f'"{exe}" "{os.path.abspath(__file__)}"'
+
+
+def get_autostart():
+    """등록된 명령 (없으면 None)"""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            return winreg.QueryValueEx(k, RUN_NAME)[0]
+    except (ImportError, OSError):
+        return None
+
+
+def set_autostart(on):
+    try:
+        import winreg
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            if on:
+                winreg.SetValueEx(k, RUN_NAME, 0, winreg.REG_SZ, autostart_command())
+            else:
+                try:
+                    winreg.DeleteValue(k, RUN_NAME)
+                except FileNotFoundError:
+                    pass
+        return True
+    except (ImportError, OSError):
+        return False
+
+
+def heal_autostart():
+    """켜 둔 상태에서 위젯 폴더·exe를 옮겼으면 새 위치로 고쳐 둔다 (바로가기처럼 깨지지 않게)"""
+    cur = get_autostart()
+    if cur and cur != autostart_command():
+        set_autostart(True)
+
+
 # ---------------------------------------------------------------- 플랜 한도 (OAuth usage)
 def plan_label(sub, tier):
     sub, tier = (sub or "").lower().removeprefix("claude_"), (tier or "").lower()
@@ -114,12 +215,9 @@ def read_credentials():
     return o.get("accessToken"), meta
 
 
-LIMIT_NAMES = {"session": "5시간 세션", "weekly_all": "주간 한도"}
-BREAKDOWN_NAMES = {"claude_code": "Claude Code", "chat": "채팅", "cowork": "Cowork", "other": "기타"}
-
-
 def parse_usage(d):
-    """응답은 문서화되지 않아서 아는 키만 조심스럽게 꺼낸다 (모르는 키는 무시)"""
+    """응답은 문서화되지 않아서 아는 키만 조심스럽게 꺼낸다 (모르는 키는 무시).
+    한도 이름은 화면이 언어에 맞게 붙인다: kind(session / weekly_all …), model(모델별 한도), weekly"""
     if not isinstance(d, dict):
         raise ValueError("응답이 객체가 아님")
     limits = []
@@ -129,26 +227,21 @@ def parse_usage(d):
         kind = str(it.get("kind") or "")
         scope = it.get("scope") if isinstance(it.get("scope"), dict) else {}
         model = scope.get("model") if isinstance(scope.get("model"), dict) else {}
-        scoped = model.get("display_name") or model.get("id")
-        if kind in LIMIT_NAMES:
-            name = LIMIT_NAMES[kind]
-        elif scoped:
-            name = f"주간 · {scoped}" if it.get("group") == "weekly" or "weekly" in kind else str(scoped)
-        else:
-            name = kind.replace("_", " ") or "한도"
-        limits.append({"kind": kind, "group": str(it.get("group") or ""), "name": name,
+        scoped = str(model.get("display_name") or model.get("id") or "")
+        limits.append({"kind": kind, "group": str(it.get("group") or ""), "model": scoped,
+                       "weekly": it.get("group") == "weekly" or "weekly" in kind, "label": kind.replace("_", " "),
                        "percent": num(it.get("percent")), "severity": str(it.get("severity") or ""),
                        "resets": iso_ts(it.get("resets_at")), "scoped": bool(scoped)})
     if not limits:  # limits 목록이 없을 때: 예전 형식(five_hour/seven_day...)으로
-        for key, kind, group, name in (("five_hour", "session", "session", LIMIT_NAMES["session"]),
-                                       ("seven_day", "weekly_all", "weekly", LIMIT_NAMES["weekly_all"]),
-                                       ("seven_day_opus", "weekly_scoped", "weekly", "주간 · Opus"),
-                                       ("seven_day_sonnet", "weekly_scoped", "weekly", "주간 · Sonnet")):
+        for key, kind, group, model in (("five_hour", "session", "session", ""),
+                                        ("seven_day", "weekly_all", "weekly", ""),
+                                        ("seven_day_opus", "weekly_scoped", "weekly", "Opus"),
+                                        ("seven_day_sonnet", "weekly_scoped", "weekly", "Sonnet")):
             w = d.get(key)
             if isinstance(w, dict) and num(w.get("utilization")) is not None:
-                limits.append({"kind": kind, "group": group, "name": name, "percent": num(w["utilization"]),
-                               "severity": "", "resets": iso_ts(w.get("resets_at")),
-                               "scoped": kind == "weekly_scoped"})
+                limits.append({"kind": kind, "group": group, "model": model, "weekly": group == "weekly",
+                               "label": kind.replace("_", " "), "percent": num(w["utilization"]),
+                               "severity": "", "resets": iso_ts(w.get("resets_at")), "scoped": bool(model)})
     if not limits:
         raise ValueError("한도 정보가 없음")
 
@@ -167,28 +260,28 @@ def parse_usage(d):
         for r in b.get("rows") or []:
             if isinstance(r, dict) and num(r.get("percent")) is not None:
                 key = str(r.get("key") or "")
-                breakdown.append({"name": BREAKDOWN_NAMES.get(key) or str(r.get("display_name") or key),
-                                  "percent": num(r["percent"])})
+                breakdown.append({"key": key, "name": str(r.get("display_name") or key), "percent": num(r["percent"])})
     return {"limits": limits, "extra": extra, "breakdown": breakdown}
 
 
 def fetch_plan():
-    """화면에 넘길 정리된 결과만 돌려준다. 토큰·원본 응답·파일 경로는 넣지 않는다."""
+    """화면에 넘길 정리된 결과만 돌려준다. 토큰·원본 응답·파일 경로는 넣지 않는다.
+    실패하면 kind(auth/http/network/parse)와 code만 넘기고 문장은 화면이 만든다."""
     out = {"ok": False, "fetched": time.time(), "plan": ""}
     try:
         token, meta = read_credentials()
     except FileNotFoundError:
-        out.update(kind="auth", error="Claude Code 로그인 정보가 없습니다. Claude Code에서 로그인하세요")
+        out.update(kind="auth", code="no_login")
         return out
     except Exception:
-        out.update(kind="auth", error="로그인 정보 파일을 읽지 못했습니다")
+        out.update(kind="auth", code="cred_read")
         return out
     out["plan"] = meta["plan"]
     if not token:
-        out.update(kind="auth", error=AUTH_MSG)
+        out.update(kind="auth", code="relogin")
         return out
     if meta["expires"] and meta["expires"] / 1000 < time.time():
-        out.update(kind="auth", error="토큰이 만료되었습니다. " + AUTH_MSG)
+        out.update(kind="auth", code="expired")
         return out
     headers = {"Authorization": "Bearer " + token, "anthropic-beta": "oauth-2025-04-20",
                "Accept": "application/json", "User-Agent": f"claude-usage-widget/{VERSION}"}
@@ -200,35 +293,34 @@ def fetch_plan():
         with urllib.request.urlopen(req, timeout=15) as r:
             body = json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        code = e.code
-        if code == 401:
-            out.update(kind="auth", error=AUTH_MSG)
-        elif code == 429:
-            out.update(kind="http", error="요청이 너무 잦아 잠시 막혔습니다 (HTTP 429). 잠시 뒤 다시 시도하세요")
+        if e.code == 401:
+            out.update(kind="auth", code="relogin")
+        elif e.code == 429:
+            out.update(kind="http", code="rate_limited")
         else:
-            out.update(kind="http", error=f"서버가 오류로 응답했습니다 (HTTP {code})")
+            out.update(kind="http", code="http", status=e.code)
         return out
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         reason = getattr(e, "reason", e)
         if isinstance(reason, socket.gaierror):
-            detail = "주소를 찾지 못했습니다. 인터넷 연결을 확인하세요"
+            detail = "dns"
         elif isinstance(reason, (TimeoutError, socket.timeout)):
-            detail = "응답 시간이 초과되었습니다"
+            detail = "timeout"
         elif isinstance(reason, ConnectionError):
-            detail = "연결이 거부되었거나 끊겼습니다"
+            detail = "refused"
         else:
             detail = type(reason).__name__
-        out.update(kind="network", error="네트워크에 연결하지 못했습니다", detail=detail)
+        out.update(kind="network", code="network", detail=detail)
         return out
     except ValueError:
-        out.update(kind="parse", error="응답을 해석하지 못했습니다")
+        out.update(kind="parse", code="bad_json")
         return out
     finally:
         req = None  # 헤더(토큰)를 담은 요청 객체를 바로 놓아 준다
     try:
         out.update(parse_usage(body))
     except Exception:
-        out.update(kind="parse", error="응답 형식이 바뀐 것 같습니다 (위젯 업데이트 필요)")
+        out.update(kind="parse", code="format")
         return out
     out["ok"] = True
     return out
@@ -259,7 +351,7 @@ def model_name(m):
     x = re.match(r"claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?$", m)
     if x:
         return f"{x.group(1).title()} {x.group(2)}{'.' + x.group(3) if x.group(3) else ''}"
-    return m or "알 수 없음"
+    return m or "?"
 
 
 def cost_of(r):
@@ -365,16 +457,21 @@ class Scanner:
                 del self.recs[k]
             if changed or old:
                 save_json(CACHE, {"v": self.VERSION, "files": self.files, "recs": self.recs})
-            self.last = {"scanned": time.time(), "took": round(time.time() - t0, 2), "files": len(seen)}
+            self.last = {"scanned": time.time(), "took": round(time.time() - t0, 2), "files": len(seen),
+                         "has_dir": os.path.isdir(PROJECTS)}
             return self.summary()
 
     def summary(self):
         today = datetime.date.today()
-        days = [today - datetime.timedelta(days=i) for i in range(6, -1, -1)]
+        days = [today - datetime.timedelta(days=i) for i in range(SERIES_DAYS - 1, -1, -1)]
         idx = {d.isoformat(): i for i, d in enumerate(days)}
+        # 기간별로 들어가는 날의 시작 위치 (days 안에서): 최근 7일, 최근 30일, 이번 달 1일부터
+        start = {"7": SERIES_DAYS - 7, "30": SERIES_DAYS - 30, "month": SERIES_DAYS - today.day}
         z = lambda: {"in": 0, "out": 0, "cw": 0, "cr": 0, "total": 0, "cost": 0.0}
         per_day = [z() for _ in days]
-        models, proj_today, proj_week, unknown = {}, {}, {}, set()
+        models = {p: {} for p in PERIODS}
+        projects = {p: {} for p in ("today",) + PERIODS}
+        unknown = set()
 
         def add(a, r, c):
             a["in"] += r[3]; a["out"] += r[4]; a["cw"] += r[5] + r[6]; a["cr"] += r[7]
@@ -389,12 +486,15 @@ class Scanner:
             if c is None:
                 unknown.add(r[1])
             add(per_day[i], r, c)
-            add(models.setdefault(r[1], z()), r, c)
-            add(proj_week.setdefault(r[2], z()), r, c)
-            if i == 6:
-                add(proj_today.setdefault(r[2], z()), r, c)
+            for p in PERIODS:
+                if i >= start[p]:
+                    add(models[p].setdefault(r[1], z()), r, c)
+                    add(projects[p].setdefault(r[2], z()), r, c)
+            if i == SERIES_DAYS - 1:
+                add(projects["today"].setdefault(r[2], z()), r, c)
 
         def top(d, n):
+            """상위 n개 + 나머지 합계 한 줄(rest, count — 이름은 화면이 붙인다)"""
             rows = sorted(d.items(), key=lambda kv: -kv[1]["total"])
             out = [{"name": k, **v} for k, v in rows[:n]]
             if len(rows) > n:
@@ -402,16 +502,18 @@ class Scanner:
                 for _, v in rows[n:]:
                     for k in rest:
                         rest[k] += v[k]
-                out.append({"name": f"그 밖의 {len(rows) - n}개", "rest": True, "count": len(rows) - n, **rest})
+                out.append({"name": "", "rest": True, "count": len(rows) - n, **rest})
             return out
 
         for i, d in enumerate(days):
-            per_day[i].update(date=d.isoformat(), label=f"{d.month}/{d.day}", wd="월화수목금토일"[d.weekday()])
-        model_rows = top(models, 5)
-        for m in model_rows:
-            m["label"] = m["name"] if m.get("rest") else model_name(m["name"])
+            per_day[i].update(date=d.isoformat(), label=f"{d.month}/{d.day}", wd=d.weekday())  # wd: 0=월요일
+        model_rows = {p: top(models[p], 5) for p in PERIODS}
+        for rows in model_rows.values():
+            for m in rows:
+                if not m.get("rest"):
+                    m["label"] = model_name(m["name"])
         return {**(self.last or {}), "today": per_day[-1], "days": per_day, "models": model_rows,
-                "projects": {"today": top(proj_today, 5), "week": top(proj_week, 5)},
+                "projects": {p: top(d, 5) for p, d in projects.items()},
                 "unpriced": sorted(model_name(m) for m in unknown)}
 
 
@@ -456,8 +558,8 @@ class Api:
             try:
                 res = fetch_plan()
             except Exception as e:  # 예상 못 한 오류도 화면에는 종류만
-                res = {"ok": False, "fetched": time.time(), "kind": "internal",
-                       "error": f"내부 오류 ({type(e).__name__})"}
+                res = {"ok": False, "fetched": time.time(), "kind": "internal", "code": "internal",
+                       "detail": type(e).__name__}
             self._plan, self._plan_at = res, time.time()
             return res
 
@@ -465,11 +567,14 @@ class Api:
         try:
             return self._scanner.scan()
         except Exception as e:
-            return {"error": f"기록을 읽지 못했습니다 ({type(e).__name__})"}
+            return {"error": "scan", "detail": type(e).__name__}
 
     def get_conf(self):
-        c = {k: self._conf.get(k) for k in ("topmost", "interval", "proj_range", "theme", "plan_enabled", "collapsed")}
-        c["version"] = VERSION
+        c = {k: self._conf.get(k) for k in ("topmost", "interval", "proj_range", "period", "theme", "lang",
+                                            "currency", "fx", "plan_enabled", "show_plan", "collapsed")}
+        lang, region = system_locale()
+        c.update(version=VERSION, sys_lang=lang, sys_currency=default_currency(region),
+                 currencies=CURRENCIES, autostart=get_autostart() is not None)
         return c
 
     def set_conf(self, key, value):
@@ -486,8 +591,23 @@ class Api:
             self._conf["plan_enabled"] = value is True
             with self._plan_lock:
                 self._plan = None  # 껐다 켜면 예전 결과를 쓰지 않고 새로 가져온다
-        elif key == "proj_range" and value in ("today", "week"):
+        elif key == "show_plan":
+            self._conf["show_plan"] = value is not False
+        elif key == "proj_range" and value in ("today", "period"):
             self._conf["proj_range"] = value
+        elif key == "period" and value in PERIODS:
+            self._conf["period"] = value
+        elif key == "lang" and value in LANGS:
+            self._conf["lang"] = value
+        elif key == "currency" and (value in ("auto", "USD") or value in CURRENCIES):
+            self._conf["currency"] = value
+        elif key == "fx_rate" and isinstance(value, dict) and value.get("currency") in CURRENCIES:
+            rate = fx_rate(value.get("rate"))
+            if rate is None:
+                return False
+            self._conf["fx"] = {**self._conf.get("fx", {}), value["currency"]: rate}
+        elif key == "autostart":
+            return set_autostart(value is True)  # 레지스트리가 기준이라 widget.json에는 두지 않는다
         elif key == "theme" and value in ("auto", "light", "dark"):
             self._conf["theme"] = value
         elif key == "collapsed" and isinstance(value, list) and all(v in FOLDS for v in value):
@@ -513,10 +633,12 @@ def single_instance():
         u32.SetForegroundWindow.argtypes = [ctypes.c_void_p]
         single_instance.mutex = k32.CreateMutexW(None, False, "Local\\claude-usage-widget")
         if k32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-            h = u32.FindWindowW(None, TITLE)
-            if h:
-                u32.ShowWindow(h, 9)  # SW_RESTORE
-                u32.SetForegroundWindow(h)
+            for title in TITLES.values():  # 언어마다 창 제목이 다르다
+                h = u32.FindWindowW(None, title)
+                if h:
+                    u32.ShowWindow(h, 9)  # SW_RESTORE
+                    u32.SetForegroundWindow(h)
+                    break
             return False
     except Exception:
         pass
@@ -525,17 +647,32 @@ def single_instance():
 
 def load_conf():
     conf = {"x": None, "y": None, "w": 420, "h": 900, "topmost": True, "interval": 300,
-            "proj_range": "today", "theme": "auto", "plan_enabled": False, "collapsed": []}
+            "proj_range": "today", "period": "7", "theme": "auto", "lang": "auto",
+            "currency": "auto", "fx": {}, "plan_enabled": False, "show_plan": True, "collapsed": []}
     saved = load_json(CONF, None)
     if saved is None:
         saved = load_json(LEGACY_CONF, {})
-    if isinstance(saved, dict):
-        conf.update({k: v for k, v in saved.items() if k in conf})
+    if not isinstance(saved, dict):
+        saved = {}
+    conf.update({k: v for k, v in saved.items() if k in conf})
     try:
         conf["interval"] = max(MIN_INTERVAL, min(MAX_INTERVAL, int(conf["interval"])))
     except (TypeError, ValueError):
         conf["interval"] = 300
     conf["plan_enabled"] = conf["plan_enabled"] is True
+    conf["show_plan"] = conf["show_plan"] is not False
+    if conf["proj_range"] not in ("today", "period"):  # 예전 값 "week"(7일)는 지금의 "기간"으로
+        conf["proj_range"] = "period" if conf["proj_range"] == "week" else "today"
+    if conf["period"] not in PERIODS:
+        conf["period"] = "7"
+    if conf["lang"] not in LANGS:
+        conf["lang"] = "auto"
+    if not (conf["currency"] in ("auto", "USD") or conf["currency"] in CURRENCIES):
+        conf["currency"] = "auto"
+    fx = conf["fx"] if isinstance(conf["fx"], dict) else {}
+    conf["fx"] = {k: r for k, r in ((k, fx_rate(v)) for k, v in fx.items() if k in CURRENCIES) if r is not None}
+    if "KRW" not in conf["fx"] and fx_rate(saved.get("krw_rate")):  # 1.2.0 개발판의 원화 환율
+        conf["fx"]["KRW"] = fx_rate(saved["krw_rate"])
     c = conf["collapsed"]
     conf["collapsed"] = sorted({v for v in c if v in FOLDS}) if isinstance(c, list) else []
     return conf
@@ -571,7 +708,8 @@ def create_window(conf, api):
     # 동시에 켜면 포트가 겹쳐 남의 화면이 뜬다. 문자열로 넘기면 HTTP 서버를 아예 쓰지 않는다.
     with open(os.path.join(ASSETS, "widget.html"), encoding="utf-8") as f:
         page = f.read()
-    win = webview.create_window(TITLE, html=page, js_api=api,
+    lang = conf["lang"] if conf["lang"] != "auto" else system_locale()[0]
+    win = webview.create_window(TITLES.get(lang, TITLES["en"]), html=page, js_api=api,
                                 width=conf["w"], height=conf["h"], x=conf["x"], y=conf["y"],
                                 min_size=(360, 420), on_top=conf["topmost"], background_color="#16181d")
     api._window = win
@@ -592,6 +730,7 @@ def main():
     if not single_instance():
         return
     import webview
+    heal_autostart()
     conf = load_conf()
     api = Api(conf)
     create_window(conf, api)
