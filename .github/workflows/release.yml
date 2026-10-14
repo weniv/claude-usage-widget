@@ -38,3 +38,39 @@ jobs:
           sha256sum claude_usage_widget.exe > claude_usage_widget.exe.sha256
           gh release create "$GITHUB_REF_NAME" claude_usage_widget.exe claude_usage_widget.exe.sha256 \
             --title "$GITHUB_REF_NAME" --generate-notes
+
+  # Windows 잡이 만든 Release에 Mac zip을 붙인다. Apple 실리콘·Intel 따로 빌드
+  mac:
+    needs: build
+    strategy:
+      matrix:
+        runner: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    env:
+      # Developer ID 인증서를 Secret에 넣었을 때만 서명·공증한다. 없으면 ad-hoc 서명 그대로 올린다
+      HAS_MAC_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt pyinstaller
+      - run: python -m unittest discover -s tests -v
+      - run: ./build_app.sh
+      - name: Developer ID 서명·공증 (Secret이 있을 때만)
+        if: env.HAS_MAC_CERT == 'true'
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: ./sign_app.sh
+      - name: Release에 올리기
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          for f in claude_usage_widget-macos-*.zip; do shasum -a 256 "$f" > "$f.sha256"; done
+          gh release upload "$GITHUB_REF_NAME" claude_usage_widget-macos-*.zip claude_usage_widget-macos-*.zip.sha256 --clobber

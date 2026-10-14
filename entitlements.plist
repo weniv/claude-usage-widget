@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- sign_app.sh가 hardened runtime으로 서명할 때 쓰는 권한. 파이썬 ctypes·pyobjc(libffi)가 실행 메모리를 만들고,
+     PyInstaller가 묶은 라이브러리를 불러올 수 있게 한다. 샌드박스·네트워크·파일 권한과는 관계없다. -->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
