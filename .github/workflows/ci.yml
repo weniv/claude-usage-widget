@@ -36,7 +36,18 @@ jobs:
           find "$APP" -name widget.html | grep -q .
           codesign --verify --deep --strict "$APP"
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist"
+      - name: 실제로 띄워 보기 (15초 뒤에도 살아 있는지, 화면 캡처)
+        run: |
+          "dist/Claude Usage Widget.app/Contents/MacOS/Claude Usage Widget" > app.log 2>&1 &
+          PID=$!
+          sleep 15
+          screencapture -x smoke.png || true
+          if ! kill -0 $PID 2>/dev/null; then cat app.log; echo "앱이 바로 꺼졌습니다"; exit 1; fi
+          kill $PID
+          cat app.log
       - uses: actions/upload-artifact@v6
         with:
           name: claude_usage_widget-macos
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            smoke.png
