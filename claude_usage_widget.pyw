@@ -1,10 +1,11 @@
 """
-Claude 사용량 위젯 (비공식, Anthropic과 관계없음) — 바탕화면 바로가기로 실행 (창 없이 pythonw)
+Claude 사용량 위젯 (비공식, Anthropic과 관계없음) — Windows는 바탕화면 바로가기(창 없이 pythonw), macOS는 .app
 
-화면은 widget.html (Edge WebView2, pywebview). 필요 패키지: pip install -r requirements.txt
+화면은 widget.html (pywebview: Windows는 Edge WebView2, macOS는 WKWebView). 필요 패키지: pip install -r requirements.txt
 
   - 플랜 한도 (기본 꺼짐, 화면에서 직접 켜야 함): Claude Code가 저장해 둔 로그인 토큰
-    (~/.claude/.credentials.json)으로 https://api.anthropic.com/api/oauth/usage 를 읽는다
+    (Windows: ~/.claude/.credentials.json, macOS: 키체인의 "Claude Code-credentials")으로
+    https://api.anthropic.com/api/oauth/usage 를 읽는다
     (5시간 세션·주간·모델별 주간·추가 사용량). 공개 문서에 없는 엔드포인트라 기본은 끄고,
     사용자가 안내를 읽고 켰을 때만 처음 켤 때·[새로고침]·자동 새로고침 간격(기본 5분, 최소 1분)마다 가져온다.
     토큰은 가져올 때마다 새로 읽고, 어디에도 저장·기록하지 않으며 화면(JS)으로도 넘기지 않는다.
@@ -12,23 +13,29 @@ Claude 사용량 위젯 (비공식, Anthropic과 관계없음) — 바탕화면 
   - 이 PC의 Claude Code 토큰: ~/.claude/projects/**/*.jsonl 의 응답 기록을 모아
     오늘·최근 7일·최근 30일·이번 달, 모델별·프로젝트별로 보여준다. 비용은 API 단가 환산(USD)과
     고른 통화(환율은 화면에서 고침, 원화 기본 1,500원)로 함께 보여준다. 파일마다 읽은 위치를 기억해 새로 붙은 부분만 읽는다.
-    (캐시: %LOCALAPPDATA%\\claude-usage-widget\\usage_cache.json)
+    (캐시: DATA_DIR/usage_cache.json)
   - Claude Code 설정 폴더를 옮겼다면(환경 변수 CLAUDE_CONFIG_DIR) 그 폴더를 쓴다.
 
-화면 글자는 한국어·영어 두 가지이고 Windows 언어를 따른다(설정에서 바꿀 수 있음). 그래서 여기서는 화면에 보일
+화면 글자는 한국어·영어 두 가지이고 OS 언어를 따른다(설정에서 바꿀 수 있음). 그래서 여기서는 화면에 보일
 문장을 만들지 않고 코드(오류 종류·한도 종류)만 넘기며, 문장은 widget.html이 언어에 맞게 만든다.
 
 창 위치·크기, 항상 위, 새로고침 간격, 테마, 언어, 통계 기간, 통화·환율, 플랜 한도 켜기·카드 표시는
-%LOCALAPPDATA%\\claude-usage-widget\\widget.json에 저장한다 (예전 위치인 스크립트·exe 옆 widget.json이 있으면
-처음 한 번 이어받는다). Windows 시작 시 실행은 HKCU\\...\\Run 레지스트리 값 하나로 켜고 끈다.
+DATA_DIR/widget.json에 저장한다 (Windows: %LOCALAPPDATA%\\claude-usage-widget, macOS: ~/Library/Application Support/
+claude-usage-widget. 예전 위치인 스크립트·exe 옆 widget.json이 있으면 처음 한 번 이어받는다).
+시작 시 실행은 Windows는 HKCU\\...\\Run 레지스트리 값 하나, macOS는 ~/Library/LaunchAgents의 plist 하나로 켜고 끈다.
 """
-import datetime, glob, json, ntpath, os, re, socket, sys, threading, time, urllib.error, urllib.request
+import datetime, glob, hashlib, json, ntpath, os, plistlib, re, socket, subprocess, sys, threading, time
+import urllib.error, urllib.request
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
+MAC = sys.platform == "darwin"
 FROZEN = getattr(sys, "frozen", False)
 BASE = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
 ASSETS = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or BASE, "claude-usage-widget")
+if MAC:
+    DATA_DIR = os.path.join(os.path.expanduser("~/Library/Application Support"), "claude-usage-widget")
+else:
+    DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or BASE, "claude-usage-widget")
 CONF = os.path.join(DATA_DIR, "widget.json")
 LEGACY_CONF = os.path.join(BASE, "widget.json")  # 예전 저장 위치 (스크립트·exe 옆)
 CACHE = os.path.join(DATA_DIR, "usage_cache.json")
@@ -48,6 +55,10 @@ MAX_INTERVAL = 3600
 FOLDS = ("models", "projects")  # 접을 수 있는 목록
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 RUN_NAME = "ClaudeUsageWidget"
+BUNDLE_ID = "kr.co.weniv.claude-usage-widget"  # macOS 앱 번들 ID이자 LaunchAgent 이름
+LAUNCH_AGENT = os.path.expanduser(f"~/Library/LaunchAgents/{BUNDLE_ID}.plist")
+KEYCHAIN_SERVICE = "Claude Code-credentials"  # macOS의 Claude Code는 로그인 정보를 파일 대신 키체인에 둔다
+NOT_FOUND = 44  # /usr/bin/security: 항목이 없음 (errSecItemNotFound)
 
 # 1달러가 얼마인지의 기본값. 시세를 가져오지 않으므로(네트워크를 쓰지 않음) 사용자가 화면에서 고친다.
 CURRENCIES = {"KRW": 1500, "JPY": 150, "CNY": 7.1, "TWD": 30, "INR": 88, "EUR": 0.86, "GBP": 0.75,
@@ -96,10 +107,12 @@ def num(v):
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
-# ---------------------------------------------------------------- 언어·지역 (Windows 설정)
+# ---------------------------------------------------------------- 언어·지역 (OS 설정)
 def system_locale():
     """(언어, 지역) — 예: ('ko', 'KR'). 화면 표시 언어나 사용자 지역 중 하나라도 한국어면 'ko'.
-    (영어 Windows에 지역만 한국으로 둔 경우가 많아서) 확인하지 못하면 ('en', '')"""
+    (영어 OS에 지역만 한국으로 둔 경우가 많아서) 확인하지 못하면 ('en', '')"""
+    if MAC:
+        return mac_locale(_defaults_read("AppleLanguages"), _defaults_read("AppleLocale"))
     lang, region = "en", ""
     try:
         import ctypes
@@ -115,6 +128,25 @@ def system_locale():
     except Exception:
         pass
     return lang, region
+
+
+def _defaults_read(key):
+    try:
+        return subprocess.run(["/usr/bin/defaults", "read", "-g", key], capture_output=True, text=True,
+                              timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def mac_locale(languages, locale):
+    """`defaults read -g AppleLanguages`('(\\n "ko-KR",\\n "en-US"\\n)')와 AppleLocale('en_US@rg=krzzzz',
+    'ko_KR') 출력 → (언어, 지역). 첫 번째 선호 언어나 지역 언어가 한국어면 'ko'. 지역은 rg= 재정의를 먼저 본다."""
+    first = re.search(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]+)*", re.sub(r"[()\s\",]+", " ", languages or ""))
+    loc = (locale or "").strip()
+    lang = "ko" if (first and first.group(0).lower().startswith("ko")) or loc.lower().startswith("ko") else "en"
+    rg = re.search(r"rg=([A-Za-z]{2})", loc)
+    region = rg.group(1) if rg else (re.match(r"[A-Za-z]+_([A-Za-z]{2})\b", loc) or [None, ""])[1]
+    return lang, region.upper()
 
 
 def default_currency(region):
@@ -134,9 +166,22 @@ def fx_rate(v):
     return round(v, 4)
 
 
-# ---------------------------------------------------------------- Windows 시작 시 실행 (HKCU Run)
+# ---------------------------------------------------------------- 시작 시 실행 (Windows: HKCU Run, macOS: LaunchAgent)
+def app_bundle():
+    """macOS .app으로 실행 중이면 번들 경로 (…/Claude Usage Widget.app), 아니면 None"""
+    exe = sys.executable
+    return exe.split("/Contents/MacOS/")[0] if FROZEN and "/Contents/MacOS/" in exe else None
+
+
 def autostart_command():
-    """지금 실행 중인 위젯을 다시 띄우는 명령. 소스로 실행 중이면 콘솔 없는 pythonw.exe로"""
+    """지금 실행 중인 위젯을 다시 띄우는 명령. Windows는 문자열(소스면 콘솔 없는 pythonw.exe로),
+    macOS는 LaunchAgent의 ProgramArguments 목록. 등록하면 안 되는 위치면 None"""
+    if MAC:
+        app = app_bundle()
+        if app:
+            # 다운로드한 앱을 옮기지 않고 열면 macOS가 임시 경로(App Translocation)에서 띄운다. 다음 로그인 땐 없는 경로라 막는다
+            return None if "/AppTranslocation/" in app else ["/usr/bin/open", "-a", app]
+        return [sys.executable, os.path.abspath(__file__)]
     if FROZEN:
         return f'"{sys.executable}"'
     exe = sys.executable
@@ -148,6 +193,12 @@ def autostart_command():
 
 def get_autostart():
     """등록된 명령 (없으면 None)"""
+    if MAC:
+        try:
+            with open(LAUNCH_AGENT, "rb") as f:
+                return plistlib.load(f).get("ProgramArguments")
+        except Exception:
+            return None
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
@@ -157,6 +208,23 @@ def get_autostart():
 
 
 def set_autostart(on):
+    if MAC:
+        try:
+            if not on:
+                if os.path.exists(LAUNCH_AGENT):
+                    os.remove(LAUNCH_AGENT)
+                return True
+            cmd = autostart_command()
+            if not cmd:
+                return False
+            # launchctl로 지금 올리지 않는다. 다음 로그인 때 launchd가 읽어 한 번 띄운다 (RunAtLoad)
+            os.makedirs(os.path.dirname(LAUNCH_AGENT), exist_ok=True)
+            with open(LAUNCH_AGENT, "wb") as f:
+                plistlib.dump({"Label": BUNDLE_ID, "ProgramArguments": cmd, "RunAtLoad": True,
+                               "ProcessType": "Interactive", "LimitLoadToSessionType": "Aqua"}, f)
+            return True
+        except OSError:
+            return False
     try:
         import winreg
         with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
@@ -174,8 +242,8 @@ def set_autostart(on):
 
 def heal_autostart():
     """켜 둔 상태에서 위젯 폴더·exe를 옮겼으면 새 위치로 고쳐 둔다 (바로가기처럼 깨지지 않게)"""
-    cur = get_autostart()
-    if cur and cur != autostart_command():
+    cur, want = get_autostart(), autostart_command()
+    if cur and want and cur != want:
         set_autostart(True)
 
 
@@ -207,10 +275,41 @@ def profile_plan(headers):
     return plan
 
 
+class KeychainError(Exception):
+    """키체인 항목은 있는데 읽지 못함 (사용자가 접근을 거부했거나 응답하지 않음)"""
+
+
+def keychain_credentials():
+    """macOS 키체인에서 Claude Code 로그인 정보(JSON 문자열)를 읽는다. 항목이 없으면 None.
+    다른 앱(여기서는 /usr/bin/security)이 처음 읽을 때 macOS가 허용할지 묻는다. [항상 허용]을 누르면
+    security 도구에 권한이 붙어 위젯을 업데이트해도 다시 묻지 않는다. 키체인은 읽기만 한다."""
+    names = [KEYCHAIN_SERVICE]
+    if os.environ.get("CLAUDE_CONFIG_DIR"):
+        # 설정 폴더를 옮긴 Claude Code는 폴더마다 다른 이름(뒤에 폴더 경로 해시 8자)으로 저장한다
+        h = hashlib.sha256(os.environ["CLAUDE_CONFIG_DIR"].encode("utf-8")).hexdigest()[:8]
+        names.insert(0, f"{KEYCHAIN_SERVICE}-{h}")
+    for name in names:
+        try:  # 허용 창에 답할 시간을 넉넉히 준다
+            r = subprocess.run(["/usr/bin/security", "find-generic-password", "-s", name, "-w"],
+                               capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.SubprocessError):
+            raise KeychainError()
+        if r.returncode == 0:
+            return r.stdout.strip()
+        if r.returncode != NOT_FOUND:
+            raise KeychainError()
+    return None
+
+
 def read_credentials():
-    """(토큰, 메타) — 토큰은 호출한 함수 안에서만 쓰고 버린다. 파일은 읽기만 한다."""
-    with open(CREDENTIALS, encoding="utf-8") as f:
-        o = (json.load(f) or {}).get("claudeAiOauth") or {}
+    """(토큰, 메타) — 토큰은 호출한 함수 안에서만 쓰고 버린다. 파일·키체인은 읽기만 한다.
+    macOS는 키체인을 먼저 보고, 없으면 Windows·Linux처럼 ~/.claude/.credentials.json을 본다."""
+    raw = keychain_credentials() if MAC else None
+    if raw is None:
+        with open(CREDENTIALS, encoding="utf-8") as f:
+            raw = f.read()
+    o = (json.loads(raw) or {}).get("claudeAiOauth") or {}
+    raw = None
     meta = {"expires": num(o.get("expiresAt")), "plan": plan_label(o.get("subscriptionType"), o.get("rateLimitTier"))}
     return o.get("accessToken"), meta
 
@@ -272,6 +371,9 @@ def fetch_plan():
         token, meta = read_credentials()
     except FileNotFoundError:
         out.update(kind="auth", code="no_login")
+        return out
+    except KeychainError:
+        out.update(kind="auth", code="keychain")
         return out
     except Exception:
         out.update(kind="auth", code="cred_read")
@@ -520,7 +622,11 @@ class Scanner:
 # ---------------------------------------------------------------- 항상 위 (UI 스레드에서)
 def set_topmost(window, on):
     """pywebview 6.2.1의 window.on_top = x 는 JS API 작업 스레드에서 form.TopMost를 직접 바꿔서
-    (WinForms 스레드 간 호출) 창이 멈춘다. UI 스레드로 넘기고 기다리지 않는다(BeginInvoke)."""
+    (WinForms 스레드 간 호출) 창이 멈춘다. UI 스레드로 넘기고 기다리지 않는다(BeginInvoke).
+    macOS(Cocoa)는 pywebview가 메인 스레드로 넘겨 주므로(AppHelper.callAfter) 그대로 쓴다."""
+    if MAC:
+        window.on_top = bool(on)
+        return True
     try:
         from webview.platforms.winforms import BrowserView
         from System import Func, Type
@@ -573,7 +679,7 @@ class Api:
         c = {k: self._conf.get(k) for k in ("topmost", "interval", "proj_range", "period", "theme", "lang",
                                             "currency", "fx", "plan_enabled", "show_plan", "collapsed")}
         lang, region = system_locale()
-        c.update(version=VERSION, sys_lang=lang, sys_currency=default_currency(region),
+        c.update(version=VERSION, os="mac" if MAC else "win", sys_lang=lang, sys_currency=default_currency(region),
                  currencies=CURRENCIES, autostart=get_autostart() is not None)
         return c
 
@@ -623,7 +729,20 @@ class Api:
 
 
 def single_instance():
-    """이미 떠 있으면 그 창을 앞으로 가져오고 False"""
+    """이미 떠 있으면 그 창을 앞으로 가져오고 False.
+    macOS는 잠금 파일로만 막는다 (.app은 macOS가 이미 떠 있는 앱을 앞으로 가져온다)"""
+    if MAC:
+        try:
+            import fcntl
+            os.makedirs(DATA_DIR, exist_ok=True)
+            f = open(os.path.join(DATA_DIR, "widget.lock"), "w")
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            single_instance.lock = f  # 프로세스가 끝날 때까지 쥐고 있는다
+        except BlockingIOError:
+            return False
+        except OSError:
+            pass
+        return True
     try:
         import ctypes
         k32, u32 = ctypes.windll.kernel32, ctypes.windll.user32
@@ -680,6 +799,18 @@ def load_conf():
 
 def on_screen(x, y):
     """저장된 창 위치(왼쪽 위 근처)가 지금 연결된 모니터 안에 있는지. 확인하지 못하면 True"""
+    if MAC:
+        try:  # pywebview 좌표는 주 화면 왼쪽 위 기준(아래로 +), Cocoa는 주 화면 왼쪽 아래 기준(위로 +)
+            from AppKit import NSScreen
+            screens = NSScreen.screens()
+            px, py = int(x) + 40, screens[0].frame().size.height - (int(y) + 10)
+            for s in screens:
+                f = s.frame()
+                if f.origin.x <= px < f.origin.x + f.size.width and f.origin.y <= py < f.origin.y + f.size.height:
+                    return True
+            return False
+        except Exception:
+            return True
     try:
         import ctypes, ctypes.wintypes as wt
         u32 = ctypes.windll.user32
@@ -694,7 +825,18 @@ def create_window(conf, api):
     import webview
     if conf["x"] is not None and not on_screen(conf["x"], conf["y"]):  # 모니터를 떼어 냈으면 기본 자리로
         conf["x"] = conf["y"] = None
-    if conf["x"] is None:  # 처음엔 주 모니터 작업 영역 오른쪽 위
+    if conf["x"] is None and MAC:  # 처음엔 주 화면에서 메뉴 막대·Dock을 뺀 영역의 오른쪽 위
+        try:
+            from AppKit import NSScreen
+            s = NSScreen.screens()[0]
+            f, v = s.frame(), s.visibleFrame()
+            top = f.size.height - (v.origin.y + v.size.height)  # 메뉴 막대 높이
+            conf["x"] = int(max(v.origin.x, v.origin.x + v.size.width - conf["w"] - 16))
+            conf["y"] = int(top + 16)
+            conf["h"] = int(min(conf["h"], v.size.height - 32))
+        except Exception:
+            pass
+    elif conf["x"] is None:  # 처음엔 주 모니터 작업 영역 오른쪽 위
         try:
             import ctypes, ctypes.wintypes as wt
             wa = wt.RECT()

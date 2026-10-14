@@ -3,12 +3,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
+        os: [windows-latest, macos-latest]
         python: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v7
@@ -17,3 +19,35 @@ jobs:
           python-version: ${{ matrix.python }}
       - run: python -m py_compile claude_usage_widget.pyw
       - run: python -m unittest discover -s tests -v
+
+  # Mac이 없어도 받아서 확인할 수 있게 .app을 만들어 Actions 결과물로 올린다 (Release는 release.yml)
+  mac-app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt pyinstaller
+      - run: ./build_app.sh
+      - name: .app이 widget.html을 담고 서명이 맞는지
+        run: |
+          APP="dist/Claude Usage Widget.app"
+          find "$APP" -name widget.html | grep -q .
+          codesign --verify --deep --strict "$APP"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist"
+      - name: 실제로 띄워 보기 (15초 뒤에도 살아 있는지, 화면 캡처)
+        run: |
+          "dist/Claude Usage Widget.app/Contents/MacOS/Claude Usage Widget" > app.log 2>&1 &
+          PID=$!
+          sleep 15
+          screencapture -x smoke.png || true
+          if ! kill -0 $PID 2>/dev/null; then cat app.log; echo "앱이 바로 꺼졌습니다"; exit 1; fi
+          kill $PID
+          cat app.log
+      - uses: actions/upload-artifact@v6
+        with:
+          name: claude_usage_widget-macos
+          path: |
+            dist/*.zip
+            smoke.png

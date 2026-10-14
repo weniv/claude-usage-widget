@@ -300,7 +300,7 @@ class FakeWinreg:
 class AutostartTest(unittest.TestCase):
     def test_on_off_and_heal(self):
         reg = FakeWinreg()
-        with mock.patch.dict(sys.modules, {"winreg": reg}):
+        with mock.patch.dict(sys.modules, {"winreg": reg}), mock.patch.object(cuw, "MAC", False):
             self.assertIsNone(cuw.get_autostart())
             self.assertTrue(cuw.set_autostart(True))
             cmd = cuw.get_autostart()
@@ -360,6 +360,110 @@ class AutostartTest(unittest.TestCase):
                 json.dump({"krw_rate": 1380}, f)
             with mock.patch.multiple(cuw, CONF=path, LEGACY_CONF=os.path.join(d, "none.json")):
                 self.assertEqual(cuw.load_conf()["fx"], {"KRW": 1380})
+
+
+class MacTest(unittest.TestCase):
+    """macOS 분기 (어느 OS에서든 MAC을 켜고 돌린다)"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.agent = os.path.join(self.tmp.name, "LaunchAgents", cuw.BUNDLE_ID + ".plist")
+        self.patch = mock.patch.multiple(cuw, MAC=True, LAUNCH_AGENT=self.agent)
+        self.patch.start()
+
+    def tearDown(self):
+        self.patch.stop()
+        self.tmp.cleanup()
+
+    def test_locale(self):
+        langs = '(\n    "en-US",\n    "ko-KR"\n)\n'
+        self.assertEqual(cuw.mac_locale('(\n    "ko-KR",\n    "en-US"\n)\n', "en_US\n"), ("ko", "US"))
+        self.assertEqual(cuw.mac_locale(langs, "ko_KR\n"), ("ko", "KR"))  # 지역 언어가 한국어
+        self.assertEqual(cuw.mac_locale(langs, "en_US@rg=krzzzz\n"), ("en", "KR"))  # 지역 재정의
+        self.assertEqual(cuw.mac_locale("(\n    ko\n)", "en_JP"), ("ko", "JP"))
+        self.assertEqual(cuw.mac_locale("", ""), ("en", ""))
+        self.assertEqual(cuw.default_currency(cuw.mac_locale(langs, "de_DE")[1]), "EUR")
+
+    def test_launch_agent(self):
+        self.assertIsNone(cuw.get_autostart())
+        self.assertTrue(cuw.set_autostart(True))
+        args = cuw.get_autostart()
+        self.assertEqual(args, [sys.executable, os.path.abspath(cuw.__file__)])
+        import plistlib
+        with open(self.agent, "rb") as f:
+            p = plistlib.load(f)
+        self.assertEqual((p["Label"], p["RunAtLoad"]), (cuw.BUNDLE_ID, True))
+        # 옮긴 뒤엔 새 위치로 고친다
+        with open(self.agent, "wb") as f:
+            plistlib.dump({**p, "ProgramArguments": ["/old/python3", "/old/w.pyw"]}, f)
+        cuw.heal_autostart()
+        self.assertEqual(cuw.get_autostart(), args)
+        self.assertTrue(cuw.set_autostart(False))
+        self.assertTrue(cuw.set_autostart(False))
+        self.assertIsNone(cuw.get_autostart())
+
+    def test_app_bundle_and_translocation(self):
+        app = "/Applications/Claude Usage Widget.app"
+        with mock.patch.multiple(cuw, FROZEN=True), mock.patch.object(cuw.sys, "executable", app + "/Contents/MacOS/x"):
+            self.assertEqual(cuw.autostart_command(), ["/usr/bin/open", "-a", app])
+        moved = "/private/var/folders/ab/T/AppTranslocation/1234/d/Claude Usage Widget.app"
+        with mock.patch.multiple(cuw, FROZEN=True), mock.patch.object(cuw.sys, "executable", moved + "/Contents/MacOS/x"):
+            self.assertIsNone(cuw.autostart_command())
+            self.assertFalse(cuw.set_autostart(True))  # 임시 경로는 등록하지 않는다
+            self.assertFalse(os.path.exists(self.agent))
+            cuw.heal_autostart()  # 이미 켜 둔 값을 임시 경로로 바꾸지 않는다
+            self.assertIsNone(cuw.get_autostart())
+
+    def run_security(self, results):
+        """/usr/bin/security 호출을 흉내: 서비스 이름 → (종료 코드, 출력)"""
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd[cmd.index("-s") + 1])
+            code, out = results.get(calls[-1], (cuw.NOT_FOUND, ""))
+            return mock.Mock(returncode=code, stdout=out)
+        return calls, mock.patch.object(cuw.subprocess, "run", side_effect=run)
+
+    def test_keychain(self):
+        cred = json.dumps({"claudeAiOauth": {"accessToken": "tok", "expiresAt": 1, "subscriptionType": "max",
+                                             "rateLimitTier": "default_claude_max_5x"}})
+        calls, p = self.run_security({cuw.KEYCHAIN_SERVICE: (0, cred + "\n")})
+        with p, mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            self.assertEqual(cuw.read_credentials(), ("tok", {"expires": 1, "plan": "Max 5x"}))
+        self.assertEqual(calls, [cuw.KEYCHAIN_SERVICE])
+
+    def test_keychain_config_dir_then_default(self):
+        calls, p = self.run_security({cuw.KEYCHAIN_SERVICE: (0, '{"claudeAiOauth": {"accessToken": "t"}}')})
+        with p, mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": "/Users/me/.claude-work"}):
+            self.assertEqual(cuw.read_credentials()[0], "t")
+        self.assertEqual(len(calls), 2)
+        self.assertRegex(calls[0], r"^Claude Code-credentials-[0-9a-f]{8}$")
+
+    def test_keychain_missing_falls_back_to_file_then_no_login(self):
+        _, p = self.run_security({})
+        with p, mock.patch.object(cuw, "CREDENTIALS", os.path.join(self.tmp.name, "none.json")):
+            out = cuw.fetch_plan()
+        self.assertEqual((out["kind"], out["code"]), ("auth", "no_login"))
+        path = os.path.join(self.tmp.name, "c.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"claudeAiOauth": {"accessToken": "file-tok"}}, f)
+        _, p = self.run_security({})
+        with p, mock.patch.object(cuw, "CREDENTIALS", path):
+            self.assertEqual(cuw.read_credentials()[0], "file-tok")
+
+    def test_keychain_denied(self):
+        _, p = self.run_security({cuw.KEYCHAIN_SERVICE: (128, "")})
+        with p, mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            out = cuw.fetch_plan()
+        self.assertEqual((out["kind"], out["code"]), ("auth", "keychain"))
+
+    def test_get_conf_reports_os(self):
+        with mock.patch.object(cuw, "Scanner"), mock.patch.object(cuw, "system_locale", return_value=("en", "")):
+            self.assertEqual(cuw.Api({}).get_conf()["os"], "mac")
+            with mock.patch.object(cuw, "MAC", False), mock.patch.object(cuw, "get_autostart", return_value=None):
+                self.assertEqual(cuw.Api({}).get_conf()["os"], "win")
 
 
 if __name__ == "__main__":

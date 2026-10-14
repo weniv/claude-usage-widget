@@ -26,10 +26,11 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--fg);
-  font: 13px/1.45 "Pretendard", "맑은 고딕", "Malgun Gothic", "Segoe UI", system-ui, sans-serif; }
+  font: 13px/1.45 "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "맑은 고딕", "Malgun Gothic",
+  "Segoe UI", system-ui, sans-serif; }
 body { padding: 12px; user-select: none; }
-/* 영어 화면은 Segoe UI 먼저 (맑은 고딕은 \ 를 ₩ 로 그린다) */
-html[lang="en"], html[lang="en"] body { font-family: "Segoe UI", system-ui, "Malgun Gothic", sans-serif; }
+/* 영어 화면은 Segoe UI·SF 먼저 (맑은 고딕은 \ 를 ₩ 로 그린다) */
+html[lang="en"], html[lang="en"] body { font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, "Malgun Gothic", sans-serif; }
 [hidden] { display: none !important; }
 .num { font-variant-numeric: tabular-nums; }
 
@@ -231,7 +232,9 @@ const I18N = {
     limit: "한도", bd: {claude_code: "Claude Code", chat: "채팅", cowork: "Cowork", other: "기타"},
     resetAt: "초기화 시각", resetIn: "초기화까지 ", soon: "곧",
     err: {no_login: "Claude Code 로그인 정보가 없습니다. Claude Code에서 로그인하세요",
-      cred_read: "로그인 정보 파일을 읽지 못했습니다", relogin: "Claude Code를 한 번 실행하면 토큰이 갱신됩니다",
+      cred_read: "로그인 정보 파일을 읽지 못했습니다",
+      keychain: "키체인에서 Claude Code 로그인 정보를 읽지 못했습니다. macOS가 접근을 물으면 암호를 넣고 [항상 허용]을 누르세요",
+      relogin: "Claude Code를 한 번 실행하면 토큰이 갱신됩니다",
       expired: "토큰이 만료되었습니다. Claude Code를 한 번 실행하면 토큰이 갱신됩니다",
       rate_limited: "요청이 너무 잦아 잠시 막혔습니다 (HTTP 429). 잠시 뒤 다시 시도하세요",
       http: s => `서버가 오류로 응답했습니다 (HTTP ${s})`, network: "네트워크에 연결하지 못했습니다",
@@ -275,7 +278,9 @@ const I18N = {
     limit: "Limit", bd: {claude_code: "Claude Code", chat: "Chat", cowork: "Cowork", other: "Other"},
     resetAt: "Resets at", resetIn: "Resets in ", soon: "soon",
     err: {no_login: "No Claude Code login found. Sign in with Claude Code",
-      cred_read: "Couldn't read the login file", relogin: "Run Claude Code once to refresh the token",
+      cred_read: "Couldn't read the login file",
+      keychain: "Couldn't read the Claude Code login from the Keychain. When macOS asks, enter your password and click [Always Allow]",
+      relogin: "Run Claude Code once to refresh the token",
       expired: "The token has expired. Run Claude Code once to refresh it",
       rate_limited: "Too many requests (HTTP 429). Try again in a moment",
       http: s => `The server returned an error (HTTP ${s})`, network: "Couldn't connect to the network",
@@ -305,11 +310,39 @@ const I18N = {
     estFoot: "$ = API-equivalent est.", estTip: "Calculated at public API prices. Unrelated to your subscription fee.", fxTip: "Edit exchange rate",
   },
 };
+/* macOS에서만 바뀌는 글자 (위 I18N 위에 덮어쓴다) */
+const MAC_I18N = {
+  ko: {
+    optin: `<p>claude.ai 플랜 한도(5시간 세션·주간)를 보려면 이 Mac의 키체인에 저장된 Claude Code 로그인 토큰으로
+      Anthropic의 <b>공개 문서에 없는 API</b>를 불러야 해서 기본으로 꺼 두었습니다.</p>
+      <ul><li>토큰은 요청할 때만 키체인에서 읽어 api.anthropic.com으로 보내고, 어디에도 저장·기록하지 않습니다.</li>
+      <li>처음 켜면 macOS가 키체인 접근을 묻습니다. 로그인 암호를 넣고 [항상 허용]을 누르면 다음부터는 묻지 않습니다.</li>
+      <li>공식 지원 기능이 아니라 예고 없이 막히거나 바뀔 수 있고, Anthropic 약관상 허용되는지 분명하지 않습니다. 직접 판단해서 켜 주세요.</li>
+      <li>켜지 않아도 위의 [웹에서 보기]로 같은 숫자를 볼 수 있습니다.</li></ul>`,
+    tokTitle: "이 Mac의 Claude Code 토큰",
+    emptyNoDir: ["Claude Code 기록 폴더를 찾지 못했습니다", "이 Mac에서 Claude Code를 설치해 한 번 쓰고 나면 여기에 토큰 사용량이 쌓입니다. (~/.claude/projects, CLAUDE_CONFIG_DIR를 정했다면 그 폴더)"],
+    langAuto: "자동 (macOS 설정)", autostart: "로그인 시 실행",
+    autoFail: "로그인 항목에 등록하지 못했습니다. 앱을 [응용 프로그램] 폴더로 옮긴 뒤 다시 시도하세요",
+  },
+  en: {
+    optin: `<p>Showing claude.ai plan limits (5-hour session, weekly) requires calling an <b>undocumented Anthropic API</b>
+      with the Claude Code login token stored in this Mac's Keychain, so it is off by default.</p>
+      <ul><li>The token is read from the Keychain only when requesting, sent only to api.anthropic.com, and never stored or logged.</li>
+      <li>The first time, macOS asks for Keychain access. Enter your login password and click [Always Allow] so it won't ask again.</li>
+      <li>This is not an officially supported feature. It may break or change without notice, and it is unclear whether Anthropic's terms allow it. Enable it at your own judgment.</li>
+      <li>Without it, [Open web] shows the same numbers on claude.ai.</li></ul>`,
+    tokTitle: "Claude Code tokens on this Mac",
+    emptyNoDir: ["Claude Code log folder not found", "Install and use Claude Code on this Mac and token usage will show up here. (~/.claude/projects, or CLAUDE_CONFIG_DIR if set)"],
+    langAuto: "Auto (macOS setting)", autostart: "Open at login",
+    autoFail: "Couldn't add to login items. Move the app to the Applications folder and try again",
+  },
+};
+for (const l of ["ko", "en"]) MAC_I18N[l] = {...I18N[l], ...MAC_I18N[l]};
 let conf = {}, plan = null, planErr = null, planOff = false, local = null, introOpen = false;
 let lastPlanHTML = "", lastPlanErrHTML = "", lastTokKey = "";
 let inflight = null, timer = null;
 const lang = () => conf.lang === "ko" || conf.lang === "en" ? conf.lang : conf.sys_lang === "ko" ? "ko" : "en";
-const T = () => I18N[lang()];
+const T = () => (conf.os === "mac" ? MAC_I18N : I18N)[lang()];
 const LOCALE = () => lang() === "ko" ? "ko-KR" : "en-US";
 
 /* ---------- 숫자 모양 ---------- */
