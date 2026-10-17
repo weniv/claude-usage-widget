@@ -35,7 +35,12 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 ditto -c -k --keepParent "$APP" "$WORK/notarize.zip"
 xcrun notarytool submit "$WORK/notarize.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
   --password "$APPLE_APP_PASSWORD" --wait
-xcrun stapler staple "$APP"
+# 공증 직후에는 티켓을 받아 오다 네트워크가 끊겨(Error 68) staple이 실패할 때가 있어 몇 번 다시 한다
+for i in 1 2 3 4 5; do
+  xcrun stapler staple "$APP" && break
+  [ "$i" = 5 ] && exit 1
+  sleep 20
+done
 spctl --assess --type execute --verbose "$APP"
 
 rm -f "$ZIP"

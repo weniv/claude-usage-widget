@@ -27,7 +27,7 @@ claude-usage-widget. 예전 위치인 스크립트·exe 옆 widget.json이 있�
 import datetime, glob, hashlib, json, ntpath, os, plistlib, re, socket, subprocess, sys, threading, time
 import urllib.error, urllib.request
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 MAC = sys.platform == "darwin"
 FROZEN = getattr(sys, "frozen", False)
 BASE = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))

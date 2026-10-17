@@ -70,7 +70,7 @@ Linux는 지원하지 않습니다.
 
 zip을 풀어 나온 `Claude Usage Widget.app`을 **[응용 프로그램] 폴더로 옮긴 뒤** 엽니다. (옮기지 않고 열면 macOS가 임시 경로에서 실행해 [로그인 시 실행]을 등록할 수 없습니다.)
 
-- 앱은 아직 Apple 공증을 받지 않았습니다. 처음 열 때 "확인되지 않은 개발자" 또는 "열 수 없습니다"가 뜨면 [시스템 설정] → [개인정보 보호 및 보안] 아래쪽의 [그래도 열기]를 누릅니다. 터미널에서 `xattr -dr com.apple.quarantine "/Applications/Claude Usage Widget.app"`을 실행해도 됩니다.
+- 앱은 Apple Developer ID로 서명하고 Apple 공증을 받았습니다(1.3.1부터). 처음 열 때 "인터넷에서 다운로드한 앱입니다" 확인만 뜨고, [열기]를 누르면 바로 실행됩니다.
 - 플랜 한도를 켜면 macOS가 키체인의 "Claude Code-credentials"에 접근해도 되는지 묻습니다. macOS의 Claude Code는 로그인 토큰을 파일이 아니라 키체인에 저장하기 때문입니다. 로그인 암호를 넣고 [항상 허용]을 누르면 다음부터 묻지 않습니다. 플랜 한도를 켜지 않으면 키체인을 읽지 않습니다.
 - 창을 닫거나 ⌘Q로 끝냅니다. Dock 아이콘을 다시 누르면 떠 있는 창이 앞으로 옵니다.
 
@@ -199,4 +199,4 @@ This project is not affiliated with, endorsed, or sponsored by Anthropic. "Claud
 
 The UI is in **English or Korean**, following your Windows language (changeable in Settings). Settings (gear icon) also cover currency and exchange rate, refresh interval, **Start with Windows** (a single `HKCU\...\Run` value, repaired automatically if you move the exe), and hiding the plan limits card.
 
-Download the exe (Windows) or the macOS zip for your chip (`apple-silicon` or `intel`) from [Releases](https://github.com/weniv/claude-usage-widget/releases). On macOS, move the app to Applications; it is not notarized yet, so the first time use System Settings → Privacy & Security → Open Anyway. Or run from source: `pip install -r requirements.txt` then `pythonw claude_usage_widget.pyw` (macOS: `python3 claude_usage_widget.pyw`). Settings and cache live in `%LOCALAPPDATA%\claude-usage-widget\` (Windows) or `~/Library/Application Support/claude-usage-widget/` (macOS); "Start with Windows" becomes "Open at login" (a LaunchAgent plist) on macOS. Licensed under MIT.
+Download the exe (Windows) or the macOS zip for your chip (`apple-silicon` or `intel`) from [Releases](https://github.com/weniv/claude-usage-widget/releases). On macOS, move the app to Applications; it is signed with an Apple Developer ID and notarized (since 1.3.1), so it opens normally. Or run from source: `pip install -r requirements.txt` then `pythonw claude_usage_widget.pyw` (macOS: `python3 claude_usage_widget.pyw`). Settings and cache live in `%LOCALAPPDATA%\claude-usage-widget\` (Windows) or `~/Library/Application Support/claude-usage-widget/` (macOS); "Start with Windows" becomes "Open at login" (a LaunchAgent plist) on macOS. Licensed under MIT.
