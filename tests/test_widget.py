@@ -207,6 +207,17 @@ class ApiTest(unittest.TestCase):
             self.assertEqual(api.plan()["kind"], "disabled")
             rc.assert_not_called()
 
+    def test_login_stamp(self):
+        with mock.patch.object(cuw, "Scanner"), tempfile.TemporaryDirectory() as d:
+            cred = os.path.join(d, ".credentials.json")
+            with mock.patch.object(cuw, "CREDENTIALS", cred):
+                self.assertIsNone(cuw.Api({"plan_enabled": True}).login_stamp())  # 파일 없음
+                with open(cred, "w") as f:
+                    f.write("{}")
+                os.utime(cred, (1000, 1000))
+                self.assertEqual(cuw.Api({"plan_enabled": True}).login_stamp(), 1000)
+                self.assertIsNone(cuw.Api({"plan_enabled": False}).login_stamp())  # 꺼져 있으면 보지 않음
+
     def test_set_conf_whitelist(self):
         with mock.patch.object(cuw, "Scanner"), mock.patch.object(cuw, "save_json"):
             conf = {"plan_enabled": False, "interval": 300}

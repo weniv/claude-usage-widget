@@ -8,6 +8,7 @@ Claude 사용량 위젯 (비공식, Anthropic과 관계없음) — Windows는 �
     https://api.anthropic.com/api/oauth/usage 를 읽는다
     (5시간 세션·주간·모델별 주간·추가 사용량). 공개 문서에 없는 엔드포인트라 기본은 끄고,
     사용자가 안내를 읽고 켰을 때만 처음 켤 때·[새로고침]·자동 새로고침 간격(기본 5분, 최소 1분)마다 가져온다.
+    한도의 초기화 시각이 지났거나 Claude Code가 토큰을 갱신하면(로그인 파일이 바뀌면) 간격을 기다리지 않고 바로 가져온다.
     토큰은 가져올 때마다 새로 읽고, 어디에도 저장·기록하지 않으며 화면(JS)으로도 넘기지 않는다.
     자격 증명 파일은 읽기만 한다 (갱신·수정하지 않음).
   - 이 PC의 Claude Code 토큰: ~/.claude/projects/**/*.jsonl 의 응답 기록을 모아
@@ -27,7 +28,7 @@ claude-usage-widget. 예전 위치인 스크립트·exe 옆 widget.json이 있�
 import datetime, glob, hashlib, json, ntpath, os, plistlib, re, socket, subprocess, sys, threading, time
 import urllib.error, urllib.request
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 MAC = sys.platform == "darwin"
 FROZEN = getattr(sys, "frozen", False)
 BASE = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -668,6 +669,17 @@ class Api:
                        "detail": type(e).__name__}
             self._plan, self._plan_at = res, time.time()
             return res
+
+    def login_stamp(self):
+        """로그인 파일의 수정 시각. Claude Code가 토큰을 갱신·재로그인하면 바뀌므로, 화면은 이것을 보고
+        만료·로그인 오류에서 바로 다시 가져온다. 수정 시각만 넘기고 파일은 열지 않는다.
+        한도를 꺼 두었거나 파일이 없으면(macOS 키체인 등) None"""
+        if not self._conf.get("plan_enabled"):
+            return None
+        try:
+            return os.stat(CREDENTIALS).st_mtime
+        except OSError:
+            return None
 
     def local(self):
         try:
