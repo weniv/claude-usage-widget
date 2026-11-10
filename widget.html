@@ -91,6 +91,7 @@ header .grow { flex: 1; min-width: 0; }
 
 /* 지표 타일 */
 .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#plan .tiles > .tile:only-child { grid-column: 1 / -1; }
 .tile { background: var(--card2); border-radius: 9px; padding: 8px 10px 7px; min-width: 0; }
 .tile .k { font-size: 11px; color: var(--dim); display: flex; justify-content: space-between; gap: 6px; }
 .tile .k span:first-child { white-space: nowrap; flex: none; }
@@ -434,8 +435,9 @@ function renderPlan() {
     html = `<div class="mini"><span>${t.offLine}</span><a class="link" data-act="intro">${introOpen ? t.less : t.more}</a></div>`;
     if (introOpen) html += `<div class="optin">${t.optin}<button class="icon-btn" data-act="plan-on">${t.optinBtn}</button></div>`;
   } else if (plan) {
+    /* 타일 두 칸은 전체 한도(세션·주간)가 먼저 차지하고, 남는 칸은 모델별 한도(예: Fable 주간)가 쓴다 */
     const L = plan.limits || [];
-    const main = L.filter(l => !l.scoped).slice(0, 2), more = L.filter(l => !main.includes(l));
+    const main = [...L.filter(l => !l.scoped), ...L.filter(l => l.scoped)].slice(0, 2), more = L.filter(l => !main.includes(l));
     html += `<div class="tiles">${main.map(limitTile).join("")}</div>`;
     if (more.length) html += `<div class="lrows num">${more.map(l => isStale(l) ? `<span class="n stale" title="${esc(t.staleTip)}">${esc(limitName(l))}</span>
       <span class="b"></span><span class="x stale" title="${esc(t.staleTip)}">–</span>` : `<span class="n" title="${esc(limitName(l))}${l.resets ? " · " + t.resetAt + " " + esc(when(l.resets)) : ""}">${esc(limitName(l))}</span>

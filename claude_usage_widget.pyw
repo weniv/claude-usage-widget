@@ -28,7 +28,7 @@ claude-usage-widget. 예전 위치인 스크립트·exe 옆 widget.json이 있�
 import datetime, glob, hashlib, json, ntpath, os, plistlib, re, socket, subprocess, sys, threading, time
 import urllib.error, urllib.request
 
-VERSION = "1.3.2"
+VERSION = "1.3.3"
 MAC = sys.platform == "darwin"
 FROZEN = getattr(sys, "frozen", False)
 BASE = os.path.dirname(sys.executable if FROZEN else os.path.abspath(__file__))
@@ -432,14 +432,16 @@ def fetch_plan():
 # ---------------------------------------------------------------- 이 PC의 Claude Code 토큰 (jsonl)
 # API 환산 추정용 단가 (USD / 100만 토큰): 입력, 출력, 캐시 읽기. 캐시 쓰기는 5분 1.25배·1시간 2배.
 PRICES = {
+    "claude-fable-5-2": (8, 40, 0.20), "claude-mythos-5-2": (8, 40, 0.20),
     "claude-fable-5-1": (10, 50, 0.25), "claude-mythos-5-1": (10, 50, 0.25),
     "claude-fable-5": (10, 50, 1.0), "claude-mythos-5": (10, 50, 1.0),
     "claude-opus-5-5": (4, 20, 0.20), "claude-opus-5": (5, 25, 0.50),
     "claude-opus-4-8": (5, 25, 0.50), "claude-opus-4-7": (5, 25, 0.50),
     "claude-opus-4-6": (5, 25, 0.50), "claude-opus-4-5": (5, 25, 0.50),
     "claude-opus-4-1": (15, 75, 1.50), "claude-opus-4": (15, 75, 1.50),
-    "claude-sonnet-5": (2, 10, 0.20), "claude-sonnet-4-6": (3, 15, 0.30),
+    "claude-sonnet-5-5": (2, 10, 0.10), "claude-sonnet-5": (2, 10, 0.20), "claude-sonnet-4-6": (3, 15, 0.30),
     "claude-sonnet-4-5": (3, 15, 0.30), "claude-sonnet-4": (3, 15, 0.30),
+    "claude-haiku-5-5": (0.10, 0.50, 0.01),  # 프롬프트 10만 토큰 이하 요금 (넘으면 5배)
     "claude-haiku-4-5": (1, 5, 0.10),
 }
 
