@@ -188,6 +188,16 @@ class PlanNameTest(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertEqual(out["plan"], "Max 20x")
 
+    def test_server_display_name_wins_over_tier(self):
+        out = self.fetch({"organization": {"organization_type": "claude_max", "rate_limit_tier": "default_claude_max_20x",
+                                           "plan_display_name": "Ultra", "plan_display_label": "Ultra plan"}})
+        self.assertEqual(out["plan"], "Ultra")
+
+    def test_blank_display_name_falls_back_to_tier(self):
+        out = self.fetch({"organization": {"organization_type": "claude_max", "rate_limit_tier": "default_claude_max_20x",
+                                           "plan_display_name": " "}})
+        self.assertEqual(out["plan"], "Max 20x")
+
     def test_profile_failure_falls_back_to_credentials(self):
         out = self.fetch(None)
         self.assertTrue(out["ok"])

@@ -268,7 +268,11 @@ def profile_plan(headers):
     try:
         with urllib.request.urlopen(urllib.request.Request(PROFILE_URL, headers=headers), timeout=10) as r:
             org = (json.loads(r.read().decode("utf-8")) or {}).get("organization") or {}
-        plan = plan_label(org.get("organization_type"), org.get("rate_limit_tier"))
+        # 서버가 붙여 주는 표시 이름(예: "Ultra")을 먼저 쓴다. rate_limit_tier는 요금제가 바뀌어도
+        # 예전 이름(default_claude_max_20x)으로 남을 수 있다
+        shown = org.get("plan_display_name")
+        plan = shown.strip()[:24] if isinstance(shown, str) and shown.strip() else \
+            plan_label(org.get("organization_type"), org.get("rate_limit_tier"))
     except Exception:  # 실패하면 10분 뒤에 다시 묻는다 (오프라인일 때 새로고침마다 기다리지 않게)
         _profile.update(at=time.time() - PROFILE_TTL + 600, plan="")
         return ""

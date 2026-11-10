@@ -133,7 +133,7 @@ macOS에서는 `pip3 install -r requirements.txt pyinstaller` 후 `./build_app.s
 | 플랜 이름(켰을 때만) | `api/oauth/profile`(같은 토큰). 실패하면 로그인 파일에 적힌 플랜 | 1시간에 한 번 |
 
 - 로그인 토큰은 Windows에서는 `~/.claude/.credentials.json`, macOS에서는 키체인의 `Claude Code-credentials` 항목에서 읽습니다(키체인에 없으면 같은 파일을 봅니다).
-- 플랜 이름을 로그인 파일(`.credentials.json`)이 아니라 서버 프로필에서 가져오는 이유: 로그인 파일의 플랜은 로그인할 때 값이라, 그 뒤에 플랜을 바꾸면(예: Max 5x → 20x) 예전 이름이 남습니다.
+- 플랜 이름을 로그인 파일(`.credentials.json`)이 아니라 서버 프로필에서 가져오는 이유: 로그인 파일의 플랜은 로그인할 때 값이라, 그 뒤에 플랜을 바꾸면(예: Max 5x → 20x) 예전 이름이 남습니다. 프로필에서도 서버가 붙여 주는 표시 이름(`plan_display_name`, 예: Ultra)을 먼저 씁니다. 요금제 등급 값(`rate_limit_tier`)은 요금제가 바뀌어도 예전 이름(`default_claude_max_20x`)으로 남을 수 있어서, 표시 이름이 없을 때만 씁니다.
 - Claude Code 설정 폴더를 옮겨 쓰고 있다면(환경 변수 `CLAUDE_CONFIG_DIR`) 그 폴더를 읽습니다.
 - jsonl 기록에서 같은 응답이 스트리밍 중에 여러 줄로 남기 때문에 `message.id` + `requestId`로 중복을 걸러 냅니다. 같은 응답의 줄 중에서는 항목별로 가장 큰 값(최종값)을 씁니다.
 - 기록 파일은 모두 합치면 수 GB가 될 수 있습니다. 파일마다 어디까지 읽었는지 기억해 두고 **새로 붙은 부분만** 읽습니다. 처음 한 번은 몇 초 걸리고(약 1.8GB 기준 3~4초), 그 뒤로는 0.2초 안팎입니다.
